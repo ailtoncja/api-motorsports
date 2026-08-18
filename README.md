@@ -2,7 +2,7 @@
 
 API simples (Node.js + TypeScript + Express) do franchise **GT World Challenge**: Europe, America e Asia. Times, pilotos e calendário de cada série, com suporte a grid extra/alternativo nas clássicas de endurance (ex.: 24 Horas de Spa), onde um time usa um piloto a mais ou aparece um time convidado que só disputa aquela corrida.
 
-> **Os dados em `src/data/` são de exemplo** (times, pilotos e datas fictícios) — servem pra provar a estrutura ponta a ponta. Veja "Como editar os dados" abaixo pra trocar pelo roster/calendário real.
+> **Os dados em `src/data/` são reais** (temporada 2026), levantados via busca na web em ago/2026 a partir das fontes oficiais de cada série (gt-world-challenge-europe.com, gt-world-challenge-america.com, gt-world-challenge-asia.com) e reportagens especializadas (dailysportscar.com, gt-report.com, Wikipedia). É uma cobertura **parcial de propósito** (3-4 times por série, não o grid inteiro de ~20-60 carros) — dá pra ampliar seguindo o mesmo padrão. Veja "Como editar os dados" abaixo.
 
 ## Rodando localmente
 
@@ -29,10 +29,10 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 
 `seriesId` é `europe`, `america` ou `asia`.
 
-Exemplo (grid da 24 Horas de Spa, que tem um piloto extra e um time convidado):
+Exemplo (grid da 24 Horas de Spa 2026, que tem uma 3ª piloto confirmada num carro da temporada e um carro extra que a Comtoyou só coloca em pista nessa prova):
 
 ```bash
-curl http://localhost:3000/series/europe/races/round-4-spa-24h
+curl http://localhost:3000/series/europe/races/r4-spa-24h
 ```
 
 ## Como funciona o grid extra nas clássicas (`entryOverrides`)
@@ -46,7 +46,7 @@ Quem calcula o grid final de uma corrida é `computeEntryList()` em `src/lib/ent
 
 ## Como editar os dados
 
-Cada série tem seu próprio arquivo em `src/data/` (`europe.ts`, `america.ts`, `asia.ts`), todos seguindo os tipos de `src/types.ts`. Pra trocar pelo roster/calendário real:
+Cada série tem seu próprio arquivo em `src/data/` (`europe.ts`, `america.ts`, `asia.ts`), todos seguindo os tipos de `src/types.ts`. Pra completar o grid (adicionar mais times) ou corrigir algo:
 
 1. Edite `teams`, `drivers` e `races` no arquivo da série.
 2. Pra uma clássica de endurance, adicione `entryOverrides` na corrida (veja o exemplo da 24h de Spa em `europe.ts`).
