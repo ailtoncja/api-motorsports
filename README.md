@@ -52,9 +52,21 @@ Cada série tem seu próprio arquivo em `src/data/` (`europe.ts`, `america.ts`, 
 2. Pra uma clássica de endurance, adicione `entryOverrides` na corrida (veja o exemplo da 24h de Spa em `europe.ts`).
 3. Não precisa mexer em `src/routes/series.ts` nem em `src/server.ts` — eles só leem o que estiver em `src/data/`.
 
-## Build / produção
+## Build / produção (local)
 
 ```bash
 npm run build   # compila src/ -> dist/
 npm start        # roda dist/server.js
 ```
+
+## Deploy na Vercel
+
+O projeto já vem pronto pra Vercel (`vercel.json` + `api/index.ts`):
+
+1. Suba o repo pro GitHub.
+2. Na Vercel, "Add New Project" → importe o repo. Não precisa configurar nada (framework "Other", sem build command) — a Vercel detecta `api/index.ts` como função serverless sozinha.
+3. Pronto: `https://<seu-projeto>.vercel.app/series` já responde.
+
+`api/index.ts` exporta o mesmo app Express de `src/app.ts` (o de `npm run dev`), então o comportamento é idêntico local e em produção. `vercel.json` só redireciona toda rota pra essa função, já que as rotas reais (`/series`, `/health` etc.) são definidas dentro do Express, não em arquivos separados por rota.
+
+A API já libera CORS pra qualquer origem (ver `src/app.ts`), então dá pra chamar direto do navegador a partir de outro site/app (ex.: o PitStopHub).

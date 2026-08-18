@@ -1,19 +1,10 @@
-import express from 'express';
-import seriesRouter from './routes/series.js';
+// Entrada só pro dev local (npm run dev / npm start) -- em producao na
+// Vercel quem serve o app e api/index.ts, como funcao serverless (nao chama
+// listen()).
+import { createApp } from './app.js';
 
-const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-app.get('/health', (_req, res) => {
-  res.json({ ok: true });
-});
-
-app.use(seriesRouter);
-
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Rota não encontrada.' });
-});
-
-app.listen(PORT, () => {
+createApp().listen(PORT, () => {
   console.log(`api-motorsports rodando em http://localhost:${PORT}`);
 });
