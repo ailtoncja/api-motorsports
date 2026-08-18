@@ -1,0 +1,60 @@
+# api-motorsports
+
+API simples (Node.js + TypeScript + Express) do franchise **GT World Challenge**: Europe, America e Asia. Times, pilotos e calendário de cada série, com suporte a grid extra/alternativo nas clássicas de endurance (ex.: 24 Horas de Spa), onde um time usa um piloto a mais ou aparece um time convidado que só disputa aquela corrida.
+
+> **Os dados em `src/data/` são de exemplo** (times, pilotos e datas fictícios) — servem pra provar a estrutura ponta a ponta. Veja "Como editar os dados" abaixo pra trocar pelo roster/calendário real.
+
+## Rodando localmente
+
+```bash
+npm install
+npm run dev
+```
+
+Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
+
+## Endpoints
+
+| Rota | Descrição |
+|---|---|
+| `GET /health` | Healthcheck |
+| `GET /series` | Lista as 3 séries (`europe`, `america`, `asia`) com contagens |
+| `GET /series/:seriesId` | Dados completos da série (times, pilotos, corridas) |
+| `GET /series/:seriesId/teams` | Times da temporada |
+| `GET /series/:seriesId/teams/:teamId` | Um time |
+| `GET /series/:seriesId/drivers` | Pilotos titulares da temporada |
+| `GET /series/:seriesId/drivers/:driverId` | Um piloto |
+| `GET /series/:seriesId/races` | Calendário |
+| `GET /series/:seriesId/races/:raceId` | Uma corrida, com `entryList` computada (roster da temporada + overrides daquela corrida) |
+
+`seriesId` é `europe`, `america` ou `asia`.
+
+Exemplo (grid da 24 Horas de Spa, que tem um piloto extra e um time convidado):
+
+```bash
+curl http://localhost:3000/series/europe/races/round-4-spa-24h
+```
+
+## Como funciona o grid extra nas clássicas (`entryOverrides`)
+
+Cada time tem um roster fixo pra temporada (`team.driverIds`). Uma corrida pode opcionalmente ter `entryOverrides`, uma lista onde cada item:
+
+- Se o `teamId` já existe no roster da temporada → **troca o grid daquele time só nessa corrida** (ex.: adiciona um 3º piloto pra prova de 24h).
+- Se o `teamId` é novo → **entra como time convidado extra**, só naquela corrida (precisa de `teamName`; `car` é opcional).
+
+Quem calcula o grid final de uma corrida é `computeEntryList()` em `src/lib/entry-list.ts` — é ela que responde o `entryList` no endpoint `GET /series/:seriesId/races/:raceId`. O resto da API nunca precisa saber sobre isso.
+
+## Como editar os dados
+
+Cada série tem seu próprio arquivo em `src/data/` (`europe.ts`, `america.ts`, `asia.ts`), todos seguindo os tipos de `src/types.ts`. Pra trocar pelo roster/calendário real:
+
+1. Edite `teams`, `drivers` e `races` no arquivo da série.
+2. Pra uma clássica de endurance, adicione `entryOverrides` na corrida (veja o exemplo da 24h de Spa em `europe.ts`).
+3. Não precisa mexer em `src/routes/series.ts` nem em `src/server.ts` — eles só leem o que estiver em `src/data/`.
+
+## Build / produção
+
+```bash
+npm run build   # compila src/ -> dist/
+npm start        # roda dist/server.js
+```
