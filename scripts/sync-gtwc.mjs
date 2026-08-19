@@ -269,7 +269,9 @@ function parseEntryTable($) {
     for (const header of driverHeaders) {
       const cell = cellByHeader.get(header);
       const name = cell.find('.table__text').first().text().trim() || cell.text().trim();
-      if (!name) continue;
+      // Corridas com 4 colunas de piloto (endurance, ex.: 24h de Spa) usam "/"
+      // como placeholder no 4o piloto quando o carro so tem 3 -- nao e nome.
+      if (!name || name === '/') continue;
       const flagClass = cell.find('[class*="flag"]').first().attr('class') ?? '';
       const codeMatch = flagClass.match(/size--tiny\s+([a-z]+)/i);
       drivers.push({ name, nationality: codeToCountry(codeMatch ? codeMatch[1] : null) });
