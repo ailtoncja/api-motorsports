@@ -1,50 +1,50 @@
-// Tipos base da API GT World Challenge (Europe/America/Asia). Ver README.md
-// para como adicionar/editar dados reais -- os arquivos em src/data/ vêm com
-// dados de exemplo (times/pilotos/corridas fictícios), não a temporada real.
+// Tipos da API GT World Challenge (Europe/America/Asia). Os dados vem do
+// Supabase (ver src/supabase.ts), sincronizado por scripts/sync-gtwc.mjs --
+// ver README.md pra como funciona o sync e as limitacoes conhecidas (Asia
+// nao tem entry list automatico).
+
+export type SeriesId = 'europe' | 'america' | 'asia';
+
+export interface Series {
+  id: SeriesId;
+  name: string;
+}
 
 export interface Driver {
-  id: string;
   name: string;
   nationality: string;
 }
 
-export interface Team {
-  id: string;
-  name: string;
-  car: string;
-  driverIds: string[]; // titulares da temporada
-}
-
-// Grid extra/alternativo só para UMA corrida específica -- cobre as
-// clássicas de endurance (ex.: 24 Horas de Spa), onde um time usa um 3º
-// piloto só naquela corrida, ou aparece um time "convidado" que só disputa
-// aquele evento. teamId pode ser o id de um time que já existe no roster da
-// temporada (só troca o grid dele) ou um id novo (vira um time extra só
-// naquela corrida -- nesse caso teamName é obrigatório).
-export interface EntryOverride {
-  teamId: string;
-  teamName?: string;
-  car?: string;
-  driverIds: string[];
-  note?: string;
+// Cada corrida guarda o proprio grid, raspado da pagina oficial daquela
+// corrida especifica -- nao existe "roster da temporada + excecao pra
+// corrida grande" (era assim que o pitstophub tentava representar isso via
+// TheSportsDB, e misturava Sprint Cup com Endurance Cup).
+export interface Entry {
+  carNumber: string | null;
+  teamName: string;
+  car: string | null;
+  class: string | null;
+  drivers: Driver[];
 }
 
 export interface Race {
-  id: string;
-  round: number;
+  seriesId: SeriesId;
+  raceId: string;
+  round: number | null;
   name: string;
-  circuit: string;
-  location: string;
+  location: string | null;
   date: string; // YYYY-MM-DD
-  entryOverrides?: EntryOverride[];
+  sourceUrl: string | null;
 }
 
-export type SeriesId = 'europe' | 'america' | 'asia';
+export interface RaceWithEntryList extends Race {
+  entryList: Entry[];
+}
 
-export interface SeriesData {
-  id: SeriesId;
+// /teams e /drivers sao vistas derivadas: nome unico agregado em cima de
+// todos os entries da serie, nao uma tabela propria.
+export interface TeamSummary {
   name: string;
-  teams: Team[];
-  drivers: Driver[];
-  races: Race[];
+  car: string | null;
+  class: string | null;
 }

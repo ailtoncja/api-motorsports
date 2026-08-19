@@ -1,15 +1,19 @@
 {
   "name": "api-motorsports",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "API simples do franchise GT World Challenge (Europe/America/Asia): times, pilotos e corridas, com suporte a grid extra nas classicas de endurance.",
+  "description": "API do franchise GT World Challenge (Europe/America/Asia): times, pilotos e corridas, sincronizada automaticamente dos sites oficiais.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "sync:gtwc": "node scripts/sync-gtwc.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.5",
     "express": "^4.21.2"
   },
   "devDependencies": {

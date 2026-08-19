@@ -1,24 +1,52 @@
 import { Router } from 'express';
-import { SERIES_BY_ID, listSeries } from '../data/index.js';
-import { computeEntryList } from '../lib/entry-list.js';
-import type { SeriesId } from '../types.js';
+import { supabase } from '../supabase.js';
+import type { Driver, Entry, Race, SeriesId, TeamSummary } from '../types.js';
 
 const router = Router();
 
+const SERIES_IDS: SeriesId[] = ['europe', 'america', 'asia'];
+const SERIES_NAMES: Record<SeriesId, string> = {
+  europe: 'GT World Challenge Europe',
+  america: 'GT World Challenge America',
+  asia: 'GT World Challenge Asia',
+};
+
 function isSeriesId(value: string): value is SeriesId {
-  return value in SERIES_BY_ID;
+  return (SERIES_IDS as string[]).includes(value);
+}
+
+function mapRaceRow(row: {
+  series_id: SeriesId;
+  race_id: string;
+  round: number | null;
+  name: string;
+  location: string | null;
+  date: string;
+  source_url: string | null;
+}): Race {
+  return {
+    seriesId: row.series_id,
+    raceId: row.race_id,
+    round: row.round,
+    name: row.name,
+    location: row.location,
+    date: row.date,
+    sourceUrl: row.source_url,
+  };
+}
+
+function mapEntryRow(row: { car_number: string | null; team_name: string; car: string | null; class: string | null; drivers: Driver[] }): Entry {
+  return {
+    carNumber: row.car_number,
+    teamName: row.team_name,
+    car: row.car,
+    class: row.class,
+    drivers: row.drivers ?? [],
+  };
 }
 
 router.get('/series', (_req, res) => {
-  res.json(
-    listSeries().map(({ id, name, teams, drivers, races }) => ({
-      id,
-      name,
-      teamCount: teams.length,
-      driverCount: drivers.length,
-      raceCount: races.length,
-    }))
-  );
+  res.json(SERIES_IDS.map((id) => ({ id, name: SERIES_NAMES[id] })));
 });
 
 router.get('/series/:seriesId', (req, res) => {
@@ -27,80 +55,109 @@ router.get('/series/:seriesId', (req, res) => {
     res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
     return;
   }
-  res.json(SERIES_BY_ID[seriesId]);
+  res.json({ id: seriesId, name: SERIES_NAMES[seriesId] });
 });
 
-router.get('/series/:seriesId/teams', (req, res) => {
+router.get('/series/:seriesId/races', async (req, res) => {
   const { seriesId } = req.params;
   if (!isSeriesId(seriesId)) {
     res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
     return;
   }
-  res.json(SERIES_BY_ID[seriesId].teams);
+  const { data, error } = await supabase
+    .from('gtwc_races')
+    .select('*')
+    .eq('series_id', seriesId)
+    .order('round', { ascending: true });
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+  res.json((data ?? []).map(mapRaceRow));
 });
 
-router.get('/series/:seriesId/teams/:teamId', (req, res) => {
-  const { seriesId, teamId } = req.params;
-  if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
-    return;
-  }
-  const team = SERIES_BY_ID[seriesId].teams.find((t) => t.id === teamId);
-  if (!team) {
-    res.status(404).json({ error: `Time "${teamId}" não encontrado.` });
-    return;
-  }
-  res.json(team);
-});
-
-router.get('/series/:seriesId/drivers', (req, res) => {
-  const { seriesId } = req.params;
-  if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
-    return;
-  }
-  res.json(SERIES_BY_ID[seriesId].drivers);
-});
-
-router.get('/series/:seriesId/drivers/:driverId', (req, res) => {
-  const { seriesId, driverId } = req.params;
-  if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
-    return;
-  }
-  const driver = SERIES_BY_ID[seriesId].drivers.find((d) => d.id === driverId);
-  if (!driver) {
-    res.status(404).json({ error: `Piloto "${driverId}" não encontrado.` });
-    return;
-  }
-  res.json(driver);
-});
-
-router.get('/series/:seriesId/races', (req, res) => {
-  const { seriesId } = req.params;
-  if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
-    return;
-  }
-  // entryOverrides so importa pra corrida especifica (endpoint abaixo) --
-  // no calendario geral, so poluiria a resposta.
-  res.json(SERIES_BY_ID[seriesId].races.map(({ entryOverrides: _entryOverrides, ...race }) => race));
-});
-
-router.get('/series/:seriesId/races/:raceId', (req, res) => {
+router.get('/series/:seriesId/races/:raceId', async (req, res) => {
   const { seriesId, raceId } = req.params;
   if (!isSeriesId(seriesId)) {
     res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
     return;
   }
-  const series = SERIES_BY_ID[seriesId];
-  const race = series.races.find((r) => r.id === raceId);
-  if (!race) {
+
+  const { data: raceRow, error: raceError } = await supabase
+    .from('gtwc_races')
+    .select('*')
+    .eq('series_id', seriesId)
+    .eq('race_id', raceId)
+    .maybeSingle();
+  if (raceError) {
+    res.status(500).json({ error: raceError.message });
+    return;
+  }
+  if (!raceRow) {
     res.status(404).json({ error: `Corrida "${raceId}" não encontrada.` });
     return;
   }
-  const { entryOverrides: _entryOverrides, ...raceInfo } = race;
-  res.json({ ...raceInfo, entryList: computeEntryList(series, race) });
+
+  const { data: entryRows, error: entriesError } = await supabase
+    .from('gtwc_entries')
+    .select('car_number, team_name, car, class, drivers')
+    .eq('series_id', seriesId)
+    .eq('race_id', raceId)
+    .order('car_number', { ascending: true });
+  if (entriesError) {
+    res.status(500).json({ error: entriesError.message });
+    return;
+  }
+
+  res.json({ ...mapRaceRow(raceRow), entryList: (entryRows ?? []).map(mapEntryRow) });
+});
+
+router.get('/series/:seriesId/teams', async (req, res) => {
+  const { seriesId } = req.params;
+  if (!isSeriesId(seriesId)) {
+    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    return;
+  }
+  const { data, error } = await supabase
+    .from('gtwc_entries')
+    .select('team_name, car, class')
+    .eq('series_id', seriesId);
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+  const byName = new Map<string, TeamSummary>();
+  for (const row of data ?? []) {
+    if (!byName.has(row.team_name)) {
+      byName.set(row.team_name, { name: row.team_name, car: row.car, class: row.class });
+    }
+  }
+  res.json([...byName.values()].sort((a, b) => a.name.localeCompare(b.name)));
+});
+
+router.get('/series/:seriesId/drivers', async (req, res) => {
+  const { seriesId } = req.params;
+  if (!isSeriesId(seriesId)) {
+    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    return;
+  }
+  const { data, error } = await supabase
+    .from('gtwc_entries')
+    .select('drivers')
+    .eq('series_id', seriesId);
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+  const byName = new Map<string, Driver>();
+  for (const row of data ?? []) {
+    for (const driver of (row.drivers ?? []) as Driver[]) {
+      if (driver?.name && !byName.has(driver.name)) {
+        byName.set(driver.name, driver);
+      }
+    }
+  }
+  res.json([...byName.values()].sort((a, b) => a.name.localeCompare(b.name)));
 });
 
 export default router;

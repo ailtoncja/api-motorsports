@@ -1,13 +1,20 @@
 # api-motorsports
 
-API simples (Node.js + TypeScript + Express) do franchise **GT World Challenge**: Europe, America e Asia. Times, pilotos e calendário de cada série, com suporte a grid extra/alternativo nas clássicas de endurance (ex.: 24 Horas de Spa), onde um time usa um piloto a mais ou aparece um time convidado que só disputa aquela corrida.
+API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge**: Europe, America e Asia. Times, pilotos e calendário de cada série.
 
-> **Os dados em `src/data/` são reais** (temporada 2026), levantados via busca na web em ago/2026 a partir das fontes oficiais de cada série (gt-world-challenge-europe.com, gt-world-challenge-america.com, gt-world-challenge-asia.com) e reportagens especializadas (dailysportscar.com, gt-report.com, Wikipedia). É uma cobertura **parcial de propósito** (3-4 times por série, não o grid inteiro de ~20-60 carros) — dá pra ampliar seguindo o mesmo padrão. Veja "Como editar os dados" abaixo.
+**Sincronizada automaticamente**, direto dos sites oficiais de cada série (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então `scripts/sync-gtwc.mjs` raspa as páginas HTML de calendário e entry list e grava no Supabase. Roda 1x/dia via GitHub Actions (`.github/workflows/sync-gtwc.yml`).
+
+> **Limitação conhecida (Asia)**: o entry list oficial da GT World Challenge Asia só é publicado em PDF, não em tabela HTML — não dá pra raspar isso com confiança. Só o calendário da Asia é automático; times/pilotos ficam com carga manual (`supabase/seed_asia.sql`).
+
+## Por que cada corrida tem seu próprio grid
+
+Diferente de assumir "um roster fixo pra temporada + uma exceção pras corridas grandes" (foi assim que o pitstophub tentou representar isso via TheSportsDB, e misturou o grid de Sprint Cup com o de Endurance Cup — por isso o GT World Challenge foi removido de lá), aqui **cada corrida grava o grid raspado da própria página oficial daquela corrida**. Sprint Cup e Endurance Cup nunca se confundem, porque cada um vem da sua própria fonte.
 
 ## Rodando localmente
 
 ```bash
 npm install
+cp .env.example .env   # preencha com as chaves do seu projeto Supabase
 npm run dev
 ```
 
@@ -18,39 +25,39 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 | Rota | Descrição |
 |---|---|
 | `GET /health` | Healthcheck |
-| `GET /series` | Lista as 3 séries (`europe`, `america`, `asia`) com contagens |
-| `GET /series/:seriesId` | Dados completos da série (times, pilotos, corridas) |
-| `GET /series/:seriesId/teams` | Times da temporada |
-| `GET /series/:seriesId/teams/:teamId` | Um time |
-| `GET /series/:seriesId/drivers` | Pilotos titulares da temporada |
-| `GET /series/:seriesId/drivers/:driverId` | Um piloto |
+| `GET /series` | Lista as 3 séries (`europe`, `america`, `asia`) |
+| `GET /series/:seriesId` | Nome/id da série |
 | `GET /series/:seriesId/races` | Calendário |
-| `GET /series/:seriesId/races/:raceId` | Uma corrida, com `entryList` computada (roster da temporada + overrides daquela corrida) |
+| `GET /series/:seriesId/races/:raceId` | Uma corrida, com `entryList` (grid completo raspado daquela corrida) |
+| `GET /series/:seriesId/teams` | Times únicos que apareceram em algum entry list da série (visão derivada) |
+| `GET /series/:seriesId/drivers` | Pilotos únicos que apareceram em algum entry list da série (visão derivada) |
 
-`seriesId` é `europe`, `america` ou `asia`.
+`seriesId` é `europe`, `america` ou `asia`. `raceId` é o slug oficial da corrida (ex.: `circuit-paul-ricard`, `crowdstrike-24-hours-of-spa`) — bate com a URL do site oficial.
 
-Exemplo (grid da 24 Horas de Spa 2026, que tem uma 3ª piloto confirmada num carro da temporada e um carro extra que a Comtoyou só coloca em pista nessa prova):
+## Banco de dados (Supabase)
+
+Duas tabelas, definidas em `supabase/schema.sql` (rode no SQL Editor do seu projeto Supabase):
+
+- `gtwc_races` — calendário (série, corrida, rodada, nome, local, data).
+- `gtwc_entries` — grid de cada corrida (número do carro, time, carro, classe, pilotos em `jsonb`).
+
+Leitura pública (RLS `select` liberado pra qualquer um); escrita só via `service_role` (usada pelo script de sync).
+
+Pra popular os dados da Asia (sem sync automático), rode `supabase/seed_asia.sql` uma vez.
+
+## Sincronização (`scripts/sync-gtwc.mjs`)
 
 ```bash
-curl http://localhost:3000/series/europe/races/r4-spa-24h
+npm run sync:gtwc
 ```
 
-## Como funciona o grid extra nas clássicas (`entryOverrides`)
+Precisa de `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no `.env` (ou como env var). Passo a passo, por série:
 
-Cada time tem um roster fixo pra temporada (`team.driverIds`). Uma corrida pode opcionalmente ter `entryOverrides`, uma lista onde cada item:
+1. Busca `/calendar` no site oficial, extrai cada rodada (número, nome do circuito, país, data, slug do evento) — tanto as rodadas futuras quanto as já disputadas (o site usa duas seções HTML diferentes pras duas).
+2. Pra Europe e America: busca `/entry-list/{ano}/{slug}` de cada rodada, lê o cabeçalho da tabela pra mapear as colunas (a ordem/quantidade difere entre os dois sites — por isso lê por nome da coluna, não posição fixa) e grava o grid completo.
+3. Pra Asia: só grava o calendário (entry list é PDF, ver limitação acima).
 
-- Se o `teamId` já existe no roster da temporada → **troca o grid daquele time só nessa corrida** (ex.: adiciona um 3º piloto pra prova de 24h).
-- Se o `teamId` é novo → **entra como time convidado extra**, só naquela corrida (precisa de `teamName`; `car` é opcional).
-
-Quem calcula o grid final de uma corrida é `computeEntryList()` em `src/lib/entry-list.ts` — é ela que responde o `entryList` no endpoint `GET /series/:seriesId/races/:raceId`. O resto da API nunca precisa saber sobre isso.
-
-## Como editar os dados
-
-Cada série tem seu próprio arquivo em `src/data/` (`europe.ts`, `america.ts`, `asia.ts`), todos seguindo os tipos de `src/types.ts`. Pra completar o grid (adicionar mais times) ou corrigir algo:
-
-1. Edite `teams`, `drivers` e `races` no arquivo da série.
-2. Pra uma clássica de endurance, adicione `entryOverrides` na corrida (veja o exemplo da 24h de Spa em `europe.ts`).
-3. Não precisa mexer em `src/routes/series.ts` nem em `src/server.ts` — eles só leem o que estiver em `src/data/`.
+O ano da URL do entry-list (`YEAR` no topo do script) precisa ser atualizado manualmente na virada de temporada.
 
 ## Build / produção (local)
 
@@ -64,9 +71,14 @@ npm start        # roda dist/server.js
 O projeto já vem pronto pra Vercel (`vercel.json` + `api/index.ts`):
 
 1. Suba o repo pro GitHub.
-2. Na Vercel, "Add New Project" → importe o repo. Não precisa configurar nada (framework "Other", sem build command) — a Vercel detecta `api/index.ts` como função serverless sozinha.
-3. Pronto: `https://<seu-projeto>.vercel.app/series` já responde.
+2. Na Vercel, "Add New Project" → importe o repo. Framework "Other", sem build command — a Vercel detecta `api/index.ts` como função serverless sozinha.
+3. Nas env vars do projeto na Vercel, adicione `SUPABASE_URL` e `SUPABASE_ANON_KEY` (só leitura -- nunca a `service_role` aqui).
+4. Pronto: `https://<seu-projeto>.vercel.app/series` já responde.
 
 `api/index.ts` exporta o mesmo app Express de `src/app.ts` (o de `npm run dev`), então o comportamento é idêntico local e em produção. `vercel.json` só redireciona toda rota pra essa função, já que as rotas reais (`/series`, `/health` etc.) são definidas dentro do Express, não em arquivos separados por rota.
 
 A API já libera CORS pra qualquer origem (ver `src/app.ts`), então dá pra chamar direto do navegador a partir de outro site/app (ex.: o PitStopHub).
+
+## GitHub Actions
+
+`.github/workflows/sync-gtwc.yml` roda o sync 1x/dia (06:00 UTC) e também aceita disparo manual (`workflow_dispatch`, aba Actions no GitHub). Precisa dos secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` cadastrados no repositório (Settings → Secrets and variables → Actions).
