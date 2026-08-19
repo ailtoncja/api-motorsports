@@ -1,7 +1,7 @@
-// Sincroniza calendario e (pra Europe/America) entry list do GT World
-// Challenge, direto dos sites oficiais -- nao existe API publica estruturada
-// pra essa categoria. Roda 1x/dia via GitHub Actions
-// (.github/workflows/sync-gtwc.yml).
+// Sincroniza calendario, classificacao, vencedor de cada corrida e (pra
+// Europe/America) entry list do GT World Challenge, direto dos sites
+// oficiais -- nao existe API publica estruturada pra essa categoria. Roda
+// 1x/dia via GitHub Actions (.github/workflows/sync-gtwc.yml).
 //
 // Por que raspar em vez de usar uma API: nao ha uma. A TheSportsDB chegou a
 // ser usada (no pitstophub) mas misturava o grid de Sprint Cup com o de
@@ -81,6 +81,13 @@ const SERIES_CONFIG = [
   },
 ];
 
+// filter_season_id usado em /results?filter_season_id=X&filter_meeting_id=Y
+// -- id interno de temporada de cada site (nao e o ano), confirmado em
+// links reais de eventos 2026. Muda toda virada de temporada, igual YEAR e
+// os params de standings acima -- conferir de novo se /results parar de
+// achar vencedor pras corridas ja disputadas.
+const RESULTS_SEASON_ID = { europe: 26, america: 11, asia: 10 };
+
 const MONTHS = {
   jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
@@ -131,6 +138,7 @@ function parseUpcomingItems($) {
     races.push({
       round: Number(roundMatch[1]),
       raceId: link.slug,
+      eventId: link.eventId,
       name: $el.find('.calendar__race-header').first().text().trim(),
       location: $el.find('.calendar__race-subheading-text').first().text().trim() || null,
       date: buildDate(day, monthText, year),
@@ -157,6 +165,7 @@ function parsePastItems($) {
     races.push({
       round: Number(roundMatch[1]),
       raceId: link.slug,
+      eventId: link.eventId,
       name,
       location,
       date: dateMatch ? buildDate(dateMatch[1], dateMatch[2], dateMatch[3]) : null,
@@ -173,6 +182,67 @@ async function scrapeCalendar(baseUrl) {
     if (race.date) byRaceId.set(race.raceId, race);
   }
   return [...byRaceId.values()].sort((a, b) => a.round - b.round);
+}
+
+// So sessoes de corrida de verdade (nao Practice/Qualifying/Test/Pit Walk,
+// nem os checkpoints intermediarios tipo "Main Race after 2h 30" que a
+// Europe tambem lista) -- lista positiva em vez de negativa, pra uma sessao
+// desconhecida no futuro ficar de fora por padrao em vez de entrar por
+// engano.
+const RACE_SESSION_RE = /^(main\s+)?race(\s+\d+)?$/i;
+
+function parseRaceSessionOptions($) {
+  return $('#filter_race_id option')
+    .map((_, opt) => ({ id: $(opt).attr('value'), label: $(opt).text().trim() }))
+    .get()
+    .filter((o) => o.id && RACE_SESSION_RE.test(o.label))
+    .map((o) => ({ ...o, order: Number(o.label.match(/\d+/)?.[0] ?? 0) }))
+    .sort((a, b) => a.order - b.order);
+}
+
+// Le "Pos"/"Team" por nome de cabecalho (America/Asia/Europe tem ordem de
+// coluna diferente) e devolve o time da linha Pos=1.
+function parseSessionWinnerTeam($) {
+  const table = $('table').first();
+  if (table.length === 0) return null;
+  const headers = table.find('thead th').map((_, th) => $(th).text().trim()).get();
+  const posIdx = headers.findIndex((h) => /^pos$/i.test(h));
+  const teamIdx = headers.findIndex((h) => /^team$/i.test(h));
+  if (posIdx === -1 || teamIdx === -1) return null;
+
+  let winner = null;
+  table.find('tbody tr').each((_, tr) => {
+    const cells = $(tr).find('td');
+    if (cells.length <= Math.max(posIdx, teamIdx)) return;
+    if ($(cells[posIdx]).text().trim() === '1') {
+      winner = $(cells[teamIdx]).text().trim() || null;
+      return false;
+    }
+  });
+  return winner;
+}
+
+// Vencedor = time (nao piloto -- carros de GT3 tem 2-3 pilotos, e essa e a
+// mesma convencao que a categoria GT World Challenge ja usava aqui antes de
+// ser removida do pitstophub). Corridas Sprint (Race 1 + Race 2) juntam os
+// dois vencedores com " / ", mesma convencao que o pitstophub ja usa pra
+// fins de semana de 2 corridas (ver DTM em src/types.ts).
+async function scrapeRaceWinner(baseUrl, seasonId, eventId) {
+  if (!eventId) return null;
+  const listHtml = await fetchHtml(`${baseUrl}/results?filter_season_id=${seasonId}&filter_meeting_id=${eventId}`);
+  const sessions = parseRaceSessionOptions(cheerio.load(listHtml));
+  if (sessions.length === 0) return null;
+
+  const winners = [];
+  for (const session of sessions) {
+    await sleep(REQUEST_DELAY_MS);
+    const html = await fetchHtml(
+      `${baseUrl}/results?filter_season_id=${seasonId}&filter_meeting_id=${eventId}&filter_race_id=${session.id}`,
+    );
+    const team = parseSessionWinnerTeam(cheerio.load(html));
+    if (team) winners.push(team);
+  }
+  return winners.length > 0 ? winners.join(' / ') : null;
 }
 
 // Le o cabecalho da tabela (<th>) pra mapear coluna -> significado, em vez
@@ -284,6 +354,7 @@ async function upsertRaces(seriesId, races) {
     name: r.name,
     location: r.location,
     date: r.date,
+    winner: r.winner ?? null,
     updated_at: new Date().toISOString(),
   }));
   const { error } = await supabase.from('gtwc_races').upsert(rows, { onConflict: 'series_id,race_id' });
@@ -346,6 +417,20 @@ async function syncSeries(config) {
   console.log(`\n=== ${config.id} ===`);
   const races = await scrapeCalendar(config.baseUrl);
   console.log(`${races.length} rodada(s) encontrada(s) no calendario.`);
+
+  const today = new Date();
+  const seasonId = RESULTS_SEASON_ID[config.id];
+  for (const race of races) {
+    if (new Date(`${race.date}T23:59:59Z`) >= today) continue; // corrida futura, sem resultado ainda
+    await sleep(REQUEST_DELAY_MS);
+    try {
+      race.winner = await scrapeRaceWinner(config.baseUrl, seasonId, race.eventId);
+      if (race.winner) console.log(`  round ${race.round}: vencedor ${race.winner}.`);
+    } catch (error) {
+      console.error(`  round ${race.round}: falha ao buscar vencedor -- ${error.message}`);
+    }
+  }
+
   await upsertRaces(config.id, races);
 
   for (const standing of config.standings) {

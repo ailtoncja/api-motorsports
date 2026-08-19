@@ -19,9 +19,12 @@ create table if not exists public.gtwc_races (
   location text,
   date date not null,
   source_url text,
+  winner text, -- nome do time vencedor (carros de GT3 tem 2-3 pilotos), null se ainda nao disputada ou sem resultado achado
   updated_at timestamptz not null default now(),
   primary key (series_id, race_id)
 );
+
+alter table public.gtwc_races add column if not exists winner text;
 
 create index if not exists gtwc_races_series_idx on public.gtwc_races (series_id);
 

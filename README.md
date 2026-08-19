@@ -29,6 +29,7 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 | `GET /series/:seriesId` | Nome/id da série |
 | `GET /series/:seriesId/races` | Calendário |
 | `GET /series/:seriesId/races/:raceId` | Uma corrida, com `entryList` (grid completo raspado daquela corrida) |
+| `winner` (em `/races` e `/races/:raceId`) | Nome do time vencedor (`null` se a corrida ainda não rolou ou o resultado não foi encontrado) |
 | `GET /series/:seriesId/teams` | Times únicos que apareceram em algum entry list da série (visão derivada), cada um já com `drivers[]` embutido |
 | `GET /series/:seriesId/drivers` | Pilotos únicos que apareceram em algum entry list da série (visão derivada) |
 | `GET /series/:seriesId/standings` | Classificação de pilotos e/ou times, `{ drivers: StandingsClass[] \| null, teams: StandingsClass[] \| null }` |
@@ -58,9 +59,10 @@ npm run sync:gtwc
 Precisa de `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no `.env` (ou como env var). Passo a passo, por série:
 
 1. Busca `/calendar` no site oficial, extrai cada rodada (número, nome do circuito, país, data, slug do evento) — tanto as rodadas futuras quanto as já disputadas (o site usa duas seções HTML diferentes pras duas).
-2. Busca `/standings?filter_standing_type={param}` pra cada classificação configurada em `SERIES_CONFIG` (varia por série, ver comentário no topo do script) e grava em `gtwc_standings`. Os `param`s têm um id de temporada interno de cada site embutido (ex.: `16_31_teams`) que muda toda virada de temporada — precisa checar de novo no `<select>` de `/standings` se o sync passar a trazer 0 posições.
-3. Pra Europe e America: busca `/entry-list/{ano}/{slug}` de cada rodada, lê o cabeçalho da tabela pra mapear as colunas (a ordem/quantidade difere entre os dois sites — por isso lê por nome da coluna, não posição fixa) e grava o grid completo.
-4. Pra Asia: só grava o calendário e a classificação (entry list é PDF, ver limitação acima).
+2. Pra cada rodada já disputada, busca `/results?filter_season_id={id}&filter_meeting_id={id}`, acha as sessões que são corrida de verdade (não Practice/Qualifying/Test — regex positiva `^(main )?race( \d+)?$`, cobre "Main Race" nas rodadas de Endurance Cup e "Race 1"/"Race 2" nas de Sprint Cup) e pega o time em P1 de cada uma. Vencedor = nome do time (carros de GT3 têm 2-3 pilotos); corridas Sprint viram `"Time do Race 1 / Time do Race 2"`. `null` se a corrida ainda não rolou ou nenhuma sessão de corrida foi encontrada.
+3. Busca `/standings?filter_standing_type={param}` pra cada classificação configurada em `SERIES_CONFIG` (varia por série, ver comentário no topo do script) e grava em `gtwc_standings`. Os `param`s têm um id de temporada interno de cada site embutido (ex.: `16_31_teams`) que muda toda virada de temporada — precisa checar de novo no `<select>` de `/standings` se o sync passar a trazer 0 posições.
+4. Pra Europe e America: busca `/entry-list/{ano}/{slug}` de cada rodada, lê o cabeçalho da tabela pra mapear as colunas (a ordem/quantidade difere entre os dois sites — por isso lê por nome da coluna, não posição fixa) e grava o grid completo.
+5. Pra Asia: só grava o calendário, o vencedor e a classificação (entry list é PDF, ver limitação acima).
 
 O ano da URL do entry-list (`YEAR` no topo do script) precisa ser atualizado manualmente na virada de temporada.
 

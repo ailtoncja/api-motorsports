@@ -23,6 +23,7 @@ function mapRaceRow(row: {
   location: string | null;
   date: string;
   source_url: string | null;
+  winner: string | null;
 }): Race {
   return {
     seriesId: row.series_id,
@@ -32,6 +33,7 @@ function mapRaceRow(row: {
     location: row.location,
     date: row.date,
     sourceUrl: row.source_url,
+    winner: row.winner,
   };
 }
 

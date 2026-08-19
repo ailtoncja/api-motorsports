@@ -35,6 +35,7 @@ export interface Race {
   location: string | null;
   date: string; // YYYY-MM-DD
   sourceUrl: string | null;
+  winner: string | null; // nome do time vencedor (carros de GT3 tem 2-3 pilotos)
 }
 
 export interface RaceWithEntryList extends Race {
