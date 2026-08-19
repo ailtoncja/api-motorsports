@@ -120,7 +120,7 @@ router.get('/series/:seriesId/teams', async (req, res) => {
   }
   const { data, error } = await supabase
     .from('gtwc_entries')
-    .select('team_name, car, class')
+    .select('team_name, car, class, car_number, drivers')
     .eq('series_id', seriesId);
   if (error) {
     res.status(500).json({ error: error.message });
@@ -128,8 +128,15 @@ router.get('/series/:seriesId/teams', async (req, res) => {
   }
   const byName = new Map<string, TeamSummary>();
   for (const row of data ?? []) {
-    if (!byName.has(row.team_name)) {
-      byName.set(row.team_name, { name: row.team_name, car: row.car, class: row.class });
+    let team = byName.get(row.team_name);
+    if (!team) {
+      team = { name: row.team_name, car: row.car, class: row.class, carNumber: row.car_number, drivers: [] };
+      byName.set(row.team_name, team);
+    }
+    for (const driver of (row.drivers ?? []) as Driver[]) {
+      if (driver?.name && !team.drivers.some((d) => d.name === driver.name)) {
+        team.drivers.push(driver);
+      }
     }
   }
   res.json([...byName.values()].sort((a, b) => a.name.localeCompare(b.name)));

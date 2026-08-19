@@ -47,4 +47,6 @@ export interface TeamSummary {
   name: string;
   car: string | null;
   class: string | null;
+  carNumber: string | null;
+  drivers: Driver[];
 }
