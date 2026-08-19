@@ -3,6 +3,9 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "API do franchise GT World Challenge (Europe/America/Asia): times, pilotos e corridas, sincronizada automaticamente dos sites oficiais.",
   "scripts": {
     "dev": "tsx watch src/server.ts",
