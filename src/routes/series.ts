@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '../supabase.js';
-import type { Driver, Entry, Race, SeriesId, TeamSummary } from '../types.js';
+import type { Driver, Entry, Race, SeriesId, SeriesStandings, StandingsClass, TeamSummary } from '../types.js';
 
 const router = Router();
 
@@ -165,6 +165,43 @@ router.get('/series/:seriesId/drivers', async (req, res) => {
     }
   }
   res.json([...byName.values()].sort((a, b) => a.name.localeCompare(b.name)));
+});
+
+router.get('/series/:seriesId/standings', async (req, res) => {
+  const { seriesId } = req.params;
+  if (!isSeriesId(seriesId)) {
+    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    return;
+  }
+  const { data, error } = await supabase
+    .from('gtwc_standings')
+    .select('standing_type, class_label, position, name, points')
+    .eq('series_id', seriesId)
+    .order('position', { ascending: true });
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return;
+  }
+
+  const byType: Record<'drivers' | 'teams', Map<string, StandingsClass>> = {
+    drivers: new Map(),
+    teams: new Map(),
+  };
+  for (const row of data ?? []) {
+    const type = row.standing_type as 'drivers' | 'teams';
+    let cls = byType[type].get(row.class_label);
+    if (!cls) {
+      cls = { classLabel: row.class_label, entries: [] };
+      byType[type].set(row.class_label, cls);
+    }
+    cls.entries.push({ position: row.position, name: row.name, points: row.points });
+  }
+
+  const result: SeriesStandings = {
+    drivers: byType.drivers.size > 0 ? [...byType.drivers.values()] : null,
+    teams: byType.teams.size > 0 ? [...byType.teams.values()] : null,
+  };
+  res.json(result);
 });
 
 export default router;

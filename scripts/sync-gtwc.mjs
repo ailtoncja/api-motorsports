@@ -37,10 +37,48 @@ const USER_AGENT = 'Mozilla/5.0 (compatible; api-motorsports-sync/1.0; +https://
 // manual quando virar temporada.
 const YEAR = 2026;
 
+// Os `param`s de standings abaixo (ex.: "0_0_drivers", "16_31_teams") vem
+// do <select> de /standings de cada site -- o primeiro numero e um id de
+// temporada interno de cada site (Europe usa "0" pra temporada atual,
+// America "16", Asia "11" pra 2026), e muda toda virada de temporada.
+// Conferir de novo em .../standings (ver <option value="...">) se o sync
+// comecar a trazer 0 posicoes.
 const SERIES_CONFIG = [
-  { id: 'europe', baseUrl: 'https://www.gt-world-challenge-europe.com', scrapeEntryLists: true },
-  { id: 'america', baseUrl: 'https://www.gt-world-challenge-america.com', scrapeEntryLists: true },
-  { id: 'asia', baseUrl: 'https://www.gt-world-challenge-asia.com', scrapeEntryLists: false },
+  {
+    id: 'europe',
+    baseUrl: 'https://www.gt-world-challenge-europe.com',
+    scrapeEntryLists: true,
+    // "Overall" da temporada inteira (Sprint Cup + Endurance Cup somados).
+    // O site tambem tem sub-classificacoes so de uma copa e por classe de
+    // piloto (Bronze/Gold/Silver) -- nao sincronizadas aqui pra manter
+    // simples; dá pra achar os params delas no <select> de /standings.
+    standings: [
+      { standingType: 'drivers', classLabel: 'Geral', param: '0_0_drivers' },
+      { standingType: 'teams', classLabel: 'Geral', param: '0_0_teams' },
+    ],
+  },
+  {
+    id: 'america',
+    baseUrl: 'https://www.gt-world-challenge-america.com',
+    scrapeEntryLists: true,
+    // America nao tem uma classificacao "geral" (nem de pilotos) em 2026 --
+    // só classificação de times, dividida por classe (Pro/Pro-Am/Am).
+    // Documentado como limitação conhecida no README.
+    standings: [
+      { standingType: 'teams', classLabel: 'Pro', param: '16_31_teams' },
+      { standingType: 'teams', classLabel: 'Pro-Am', param: '16_30_teams' },
+      { standingType: 'teams', classLabel: 'Am', param: '16_29_teams' },
+    ],
+  },
+  {
+    id: 'asia',
+    baseUrl: 'https://www.gt-world-challenge-asia.com',
+    scrapeEntryLists: false,
+    standings: [
+      { standingType: 'drivers', classLabel: 'Geral', param: '11_0_1_drivers' },
+      { standingType: 'teams', classLabel: 'Geral', param: '11_0_1_teams' },
+    ],
+  },
 ];
 
 const MONTHS = {
@@ -187,6 +225,56 @@ async function scrapeEntryList(baseUrl, raceId) {
   return { url, entries: parseEntryTable(cheerio.load(html)) };
 }
 
+// Le a tabela de /standings. Duas variantes de marcacao encontradas nos
+// sites oficiais: America/Asia tem cabecalho real (<thead><th>Pos/Driver ou
+// Team/Total</th></thead>); ja o <thead> da Europe so agrupa por corrida
+// (Round/Track/Session) -- o rotulo real (POS/DRIVER/TOTAL) vem disfarcado
+// de primeira linha do <tbody>, como <td> em vez de <th>. Le por nome de
+// coluna nos dois casos (mesmo motivo do parseEntryTable acima), e pula
+// essa linha-cabecalho disfarcada quando aparece no meio dos dados.
+function parseStandingsTable($) {
+  const table = $('table.standing, table.table, table').first();
+  if (table.length === 0) return [];
+
+  let headers = table.find('thead th').map((_, th) => $(th).text().trim()).get();
+
+  if (!headers.some((h) => /^pos$/i.test(h))) {
+    const pseudoHeaderRow = table.find('tbody tr').filter((_, tr) => {
+      return /^pos$/i.test($(tr).find('td').first().text().trim());
+    }).first();
+    if (pseudoHeaderRow.length > 0) {
+      headers = pseudoHeaderRow.find('td').map((_, td) => $(td).text().trim()).get();
+    }
+  }
+
+  const posIdx = headers.findIndex((h) => /^pos$/i.test(h));
+  const nameIdx = headers.findIndex((h) => /^(driver|team)$/i.test(h));
+  const totalIdx = headers.findIndex((h) => /^total$/i.test(h));
+  if (posIdx === -1 || nameIdx === -1 || totalIdx === -1) return [];
+
+  const rows = [];
+  table.find('tbody tr').each((_, tr) => {
+    const cells = $(tr).find('td');
+    if (cells.length <= totalIdx) return;
+    if (/^pos$/i.test($(cells[0]).text().trim())) return;
+
+    const position = parseInt($(cells[posIdx]).text().trim(), 10);
+    const nameCell = $(cells[nameIdx]);
+    const name = nameCell.find('a').first().text().trim() || nameCell.text().trim();
+    const points = parseFloat($(cells[totalIdx]).text().trim());
+
+    if (!Number.isFinite(position) || !name || !Number.isFinite(points)) return;
+    rows.push({ position, name, points });
+  });
+  return rows;
+}
+
+async function scrapeStandings(baseUrl, param) {
+  const url = `${baseUrl}/standings?filter_standing_type=${param}`;
+  const html = await fetchHtml(url);
+  return parseStandingsTable(cheerio.load(html));
+}
+
 async function upsertRaces(seriesId, races) {
   if (races.length === 0) return;
   const rows = races.map((r) => ({
@@ -232,14 +320,47 @@ async function replaceEntries(seriesId, raceId, entries, sourceUrl) {
   if (updateError) throw updateError;
 }
 
+async function replaceStandings(seriesId, standingType, classLabel, entries) {
+  const { error: deleteError } = await supabase
+    .from('gtwc_standings')
+    .delete()
+    .eq('series_id', seriesId)
+    .eq('standing_type', standingType)
+    .eq('class_label', classLabel);
+  if (deleteError) throw deleteError;
+
+  if (entries.length === 0) return;
+  const rows = entries.map((e) => ({
+    series_id: seriesId,
+    standing_type: standingType,
+    class_label: classLabel,
+    position: e.position,
+    name: e.name,
+    points: e.points,
+  }));
+  const { error: insertError } = await supabase.from('gtwc_standings').insert(rows);
+  if (insertError) throw insertError;
+}
+
 async function syncSeries(config) {
   console.log(`\n=== ${config.id} ===`);
   const races = await scrapeCalendar(config.baseUrl);
   console.log(`${races.length} rodada(s) encontrada(s) no calendario.`);
   await upsertRaces(config.id, races);
 
+  for (const standing of config.standings) {
+    await sleep(REQUEST_DELAY_MS);
+    try {
+      const entries = await scrapeStandings(config.baseUrl, standing.param);
+      await replaceStandings(config.id, standing.standingType, standing.classLabel, entries);
+      console.log(`  standings ${standing.standingType}/${standing.classLabel}: ${entries.length} posicao(oes).`);
+    } catch (error) {
+      console.error(`  standings ${standing.standingType}/${standing.classLabel}: falhou -- ${error.message}`);
+    }
+  }
+
   if (!config.scrapeEntryLists) {
-    console.log('Entry list nao automatizado pra essa serie (site so publica PDF) -- so calendario sincronizado.');
+    console.log('Entry list nao automatizado pra essa serie (site so publica PDF) -- so calendario/classificacao sincronizados.');
     return;
   }
 

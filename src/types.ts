@@ -50,3 +50,23 @@ export interface TeamSummary {
   carNumber: string | null;
   drivers: Driver[];
 }
+
+export interface StandingEntry {
+  position: number;
+  name: string;
+  points: number;
+}
+
+// Uma classificacao pode ter mais de uma classe (ex.: America so tem
+// classificacao de times, dividida em Pro/Pro-Am/Am -- nunca misturadas
+// numa unica lista de posicoes, pra nao sugerir uma classificacao geral
+// que a serie nao tem de verdade).
+export interface StandingsClass {
+  classLabel: string;
+  entries: StandingEntry[];
+}
+
+export interface SeriesStandings {
+  drivers: StandingsClass[] | null;
+  teams: StandingsClass[] | null;
+}
