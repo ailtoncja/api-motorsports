@@ -269,9 +269,12 @@ function parseEntryTable($) {
     for (const header of driverHeaders) {
       const cell = cellByHeader.get(header);
       const name = cell.find('.table__text').first().text().trim() || cell.text().trim();
-      // Corridas com 4 colunas de piloto (endurance, ex.: 24h de Spa) usam "/"
-      // como placeholder no 4o piloto quando o carro so tem 3 -- nao e nome.
-      if (!name || name === '/') continue;
+      // Placeholders, nao pilotos de verdade: "/" e o 4o slot vazio em
+      // corridas de endurance (ex.: 24h de Spa, carro so com 3 pilotos), e
+      // "TBA" e piloto ainda nao confirmado pelo time (as vezes fica assim
+      // ate na entry list de uma corrida ja disputada -- limitacao do site,
+      // nao um bug do parser).
+      if (!name || name === '/' || /^TBA$/i.test(name)) continue;
       const flagClass = cell.find('[class*="flag"]').first().attr('class') ?? '';
       const codeMatch = flagClass.match(/size--tiny\s+([a-z]+)/i);
       drivers.push({ name, nationality: codeToCountry(codeMatch ? codeMatch[1] : null) });
