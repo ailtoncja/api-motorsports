@@ -1,8 +1,8 @@
 # api-motorsports
 
-API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge**: Europe, America e Asia. Times, pilotos e calendário de cada série.
+API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge** (Europe, America e Asia) e do **Endurance Brasil**. Times, pilotos e calendário de cada campeonato.
 
-**Sincronizada automaticamente**, direto dos sites oficiais de cada série (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então `scripts/sync-gtwc.mjs` raspa as páginas HTML de calendário e entry list e grava no Supabase. Roda 1x/dia via GitHub Actions (`.github/workflows/sync-gtwc.yml`).
+O GTWC é **sincronizado automaticamente** dos sites oficiais (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então `scripts/sync-gtwc.mjs` raspa as páginas HTML de calendário e entry list e grava no Supabase. Roda 1x/dia via GitHub Actions (`.github/workflows/sync-gtwc.yml`).
 
 > **Limitação conhecida (Asia)**: o entry list oficial da GT World Challenge Asia só é publicado em PDF, não em tabela HTML — não dá pra raspar isso com confiança. Só o calendário da Asia é automático; times/pilotos ficam com carga manual (`supabase/seed_asia.sql`).
 
@@ -38,6 +38,21 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 
 `seriesId` é `europe`, `america` ou `asia`. `raceId` é o slug oficial da corrida (ex.: `circuit-paul-ricard`, `crowdstrike-24-hours-of-spa`) — bate com a URL do site oficial.
 
+### Endurance Brasil
+
+Rotas irmãs do GTWC — **não substituem** `/series`. Fonte: [endurancebrasiloficial.com.br](https://endurancebrasiloficial.com.br/). O site não publica entry list por corrida nem resultado estruturado da etapa, então não há `entryList` e `winner` vem `null`.
+
+| Rota | Descrição |
+|---|---|
+| `GET /endurance-brasil` | `{ id: "endurance-brasil", name: "Endurance Brasil" }` |
+| `GET /endurance-brasil/races` | Calendário (`completed` = badge ENCERRADA no site) |
+| `GET /endurance-brasil/races/:raceId` | Uma etapa (slug oficial, ex.: `1-etapa-quatro-horas-de-brasilia`) |
+| `GET /endurance-brasil/teams` | Equipes da temporada, cada uma com `drivers[]` |
+| `GET /endurance-brasil/teams/:teamId` | Uma equipe |
+| `GET /endurance-brasil/drivers` | Pilotos da temporada (`uf` = estado, `class` = P1/GT3/…) |
+| `GET /endurance-brasil/drivers/:driverId` | Um piloto |
+| `GET /endurance-brasil/standings` | `{ drivers: StandingsClass[] \| null, teams: null }` — uma lista por classe (P1, GT3, GT4, …); a chave `general` do site mistura classes e **não** é gravada |
+
 ## Banco de dados (Supabase)
 
 Duas tabelas, definidas em `supabase/schema.sql` (rode no SQL Editor do seu projeto Supabase):
@@ -49,6 +64,13 @@ Duas tabelas, definidas em `supabase/schema.sql` (rode no SQL Editor do seu proj
 Leitura pública (RLS `select` liberado pra qualquer um); escrita só via `service_role` (usada pelo script de sync).
 
 Pra popular os dados da Asia (sem sync automático), rode `supabase/seed_asia.sql` uma vez.
+
+Endurance Brasil (tabelas `eb_*`, definidas em `supabase/endurance_brasil_schema.sql`, mesmo projeto, SQL Editor — **não altera** `gtwc_*`):
+
+- `eb_races` — calendário.
+- `eb_teams` — equipes da temporada (pilotos em `jsonb`).
+- `eb_drivers` — pilotos da temporada.
+- `eb_standings` — classificação de pilotos por classe.
 
 ## Sincronização (`scripts/sync-gtwc.mjs`)
 
@@ -66,6 +88,21 @@ Precisa de `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no `.env` (ou como env v
 
 O ano da URL do entry-list (`YEAR` no topo do script) precisa ser atualizado manualmente na virada de temporada.
 
+## Sincronização Endurance Brasil (`scripts/sync-endurance-brasil.mjs`)
+
+```bash
+npm run sync:endurance-brasil
+```
+
+Mesmas env vars do sync GTWC (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`). Passo a passo:
+
+1. Busca `/calendario`, lê cada card (nome, circuito, data `DD/MM/YYYY`, slug, badge ENCERRADA).
+2. Busca `/equipes` (nome, chefe de equipe, lista de pilotos, slug).
+3. Busca `/pilotos` (nome + slug) e cruza com a classificação pra preencher UF/classe e com as equipes pra preencher `teamId`.
+4. Lê o objeto JS `season_classifications` em `/classificacao` e grava uma lista por classe. Ignora `general` porque mistura P1/GT3/GT4 numa tabela só.
+
+Roda 1x/dia em `.github/workflows/sync-endurance-brasil.yml` (job separado do GTWC, mesmas secrets).
+
 ## Build / produção (local)
 
 ```bash
@@ -80,7 +117,7 @@ O projeto já vem pronto pra Vercel (`vercel.json` + `api/index.ts`):
 1. Suba o repo pro GitHub.
 2. Na Vercel, "Add New Project" → importe o repo. Framework "Other", sem build command — a Vercel detecta `api/index.ts` como função serverless sozinha.
 3. Nas env vars do projeto na Vercel, adicione `SUPABASE_URL` e `SUPABASE_ANON_KEY` (só leitura -- nunca a `service_role` aqui).
-4. Pronto: `https://<seu-projeto>.vercel.app/series` já responde.
+4. Pronto: `https://<seu-projeto>.vercel.app/series` já responde. Endurance Brasil em `/endurance-brasil`.
 
 `api/index.ts` exporta o mesmo app Express de `src/app.ts` (o de `npm run dev`), então o comportamento é idêntico local e em produção. `vercel.json` só redireciona toda rota pra essa função, já que as rotas reais (`/series`, `/health` etc.) são definidas dentro do Express, não em arquivos separados por rota.
 
@@ -88,4 +125,4 @@ A API já libera CORS pra qualquer origem (ver `src/app.ts`), então dá pra cha
 
 ## GitHub Actions
 
-`.github/workflows/sync-gtwc.yml` roda o sync 1x/dia (06:00 UTC) e também aceita disparo manual (`workflow_dispatch`, aba Actions no GitHub). Precisa dos secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` cadastrados no repositório (Settings → Secrets and variables → Actions).
+`.github/workflows/sync-gtwc.yml` e `.github/workflows/sync-endurance-brasil.yml` rodam 1x/dia (06:00 UTC) e também aceitam disparo manual (`workflow_dispatch`, aba Actions no GitHub). Precisa dos secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` cadastrados no repositório (Settings → Secrets and variables → Actions).
