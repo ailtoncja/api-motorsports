@@ -1,5 +1,6 @@
 import express from 'express';
 import seriesRouter from './routes/series.js';
+import enduranceBrasilRouter from './routes/endurance-brasil.js';
 
 // Fabrica do app Express, separada do listen() -- server.ts (dev local) e
 // api/index.ts (funcao serverless da Vercel) usam a mesma instancia sem
@@ -19,6 +20,7 @@ export function createApp() {
   });
 
   app.use(seriesRouter);
+  app.use(enduranceBrasilRouter);
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Rota não encontrada.' });
