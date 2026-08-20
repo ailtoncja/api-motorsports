@@ -40,7 +40,7 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 
 ### Endurance Brasil
 
-Rotas irmãs do GTWC — **não substituem** `/series`. Fonte: [endurancebrasiloficial.com.br](https://endurancebrasiloficial.com.br/). O site não publica entry list por corrida nem resultado estruturado da etapa, então não há `entryList` e `winner` vem `null`.
+Rotas irmãs do GTWC — **não substituem** `/series`. Fonte: [endurancebrasiloficial.com.br](https://endurancebrasiloficial.com.br/). O site não publica entry list por corrida, então não há `entryList`. O `winner` é o time da vitória geral (P1), lido das notícias oficiais da etapa — a tabela CLASSIFICAÇÃO na página da corrida é o campeonato, não o resultado da prova.
 
 | Rota | Descrição |
 |---|---|
@@ -100,6 +100,7 @@ Mesmas env vars do sync GTWC (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`). Pass
 2. Busca `/equipes` (nome, chefe de equipe, lista de pilotos, slug).
 3. Busca `/pilotos` (nome + slug) e cruza com a classificação pra preencher UF/classe e com as equipes pra preencher `teamId`.
 4. Lê o objeto JS `season_classifications` em `/classificacao` e grava uma lista por classe. Ignora `general` porque mistura P1/GT3/GT4 numa tabela só.
+5. Pra cada etapa ENCERRADA, busca `/noticias` e as matérias de vitória geral. Se a matéria tem o resultado numerado (`<ol>` com P1 em #1), usa o time dessa linha; senão, usa a manchete (`Foresti Sports vence…`). Ignora matérias só de GT3/GT4. O nome é normalizado pro roster (`GForce Autosport` no texto vira `GForce Autorsport` no site).
 
 Roda 1x/dia em `.github/workflows/sync-endurance-brasil.yml` (job separado do GTWC, mesmas secrets).
 
