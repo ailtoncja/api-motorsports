@@ -3,9 +3,11 @@
 --
 -- Endurance Brasil (endurancebrasiloficial.com.br): calendario, roster de
 -- temporada (equipes/pilotos) e classificacao por classe. Diferente do GTWC,
--- o site oficial NAO publica entry list por corrida nem resultado estruturado
--- da etapa -- por isso nao existe eb_entries, e winner em eb_races fica null
--- na v1. Times e pilotos sao tabelas proprias (nao vistas derivadas).
+-- o site oficial NAO publica entry list por corrida -- por isso nao existe
+-- eb_entries. O vencedor da etapa vem das noticias oficiais (lista numerada
+-- da prova ou manchete de vitoria geral), nao da tabela CLASSIFICACAO na
+-- pagina da corrida (aquilo e o campeonato da temporada). Times e pilotos
+-- sao tabelas proprias (nao vistas derivadas).
 --
 -- Sincronizado por scripts/sync-endurance-brasil.mjs.
 
@@ -17,7 +19,7 @@ create table if not exists public.eb_races (
   date date not null,
   source_url text,
   completed boolean not null default false, -- badge ENCERRADA no /calendario
-  winner text, -- sempre null na v1: o site nao publica P1 da prova em HTML
+  winner text, -- nome do time vencedor (geral/P1); null se a etapa ainda nao rolou
   updated_at timestamptz not null default now()
 );
 

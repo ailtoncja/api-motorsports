@@ -32,7 +32,7 @@ export interface EbRace {
   date: string; // YYYY-MM-DD
   sourceUrl: string | null;
   completed: boolean;
-  winner: string | null; // sempre null na v1 -- o site nao publica P1 da prova
+  winner: string | null; // nome do time vencedor (geral/P1), null se a etapa ainda nao rolou
 }
 
 export interface EbStandingEntry {
