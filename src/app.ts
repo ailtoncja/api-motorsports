@@ -8,10 +8,20 @@ import enduranceBrasilRouter from './routes/endurance-brasil.js';
 export function createApp() {
   const app = express();
 
-  // API de leitura publica -- libera qualquer origem pra poder ser chamada
-  // direto do navegador (ex.: pelo frontend do PitStopHub, em outro dominio).
-  app.use((_req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  app.disable('x-powered-by');
+
+  // API de leitura, chamada direto do navegador pelo PitStopHub (outro dominio).
+  // So o site (producao, previas da Vercel e dev local) recebe liberacao de CORS;
+  // o app Android nao passa por CORS. Outras origens podem ser liberadas por
+  // ALLOWED_ORIGINS (separadas por virgula).
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && isAllowedOrigin(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
 
@@ -27,4 +37,13 @@ export function createApp() {
   });
 
   return app;
+}
+
+const DEFAULT_ORIGINS = ['https://pitstophub.vercel.app'];
+const PREVIEW_ORIGIN = /^https:\/\/pitstophub-[a-z0-9-]+\.vercel\.app$/;
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+export function isAllowedOrigin(origin: string): boolean {
+  const extra = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+  return [...DEFAULT_ORIGINS, ...extra].includes(origin) || PREVIEW_ORIGIN.test(origin) || LOCAL_ORIGIN.test(origin);
 }
