@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { notFound, serverError } from '../http.js';
 import { supabase } from '../supabase.js';
 import type { Driver, Entry, Race, SeriesId, SeriesStandings, StandingsClass, TeamSummary } from '../types.js';
 
@@ -54,7 +55,7 @@ router.get('/series', (_req, res) => {
 router.get('/series/:seriesId', (req, res) => {
   const { seriesId } = req.params;
   if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    notFound(res, `Série "${seriesId}" não encontrada.`);
     return;
   }
   res.json({ id: seriesId, name: SERIES_NAMES[seriesId] });
@@ -63,7 +64,7 @@ router.get('/series/:seriesId', (req, res) => {
 router.get('/series/:seriesId/races', async (req, res) => {
   const { seriesId } = req.params;
   if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    notFound(res, `Série "${seriesId}" não encontrada.`);
     return;
   }
   const { data, error } = await supabase
@@ -72,7 +73,7 @@ router.get('/series/:seriesId/races', async (req, res) => {
     .eq('series_id', seriesId)
     .order('round', { ascending: true });
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   res.json((data ?? []).map(mapRaceRow));
@@ -81,7 +82,7 @@ router.get('/series/:seriesId/races', async (req, res) => {
 router.get('/series/:seriesId/races/:raceId', async (req, res) => {
   const { seriesId, raceId } = req.params;
   if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    notFound(res, `Série "${seriesId}" não encontrada.`);
     return;
   }
 
@@ -92,11 +93,11 @@ router.get('/series/:seriesId/races/:raceId', async (req, res) => {
     .eq('race_id', raceId)
     .maybeSingle();
   if (raceError) {
-    res.status(500).json({ error: raceError.message });
+    serverError(res, req.path, raceError);
     return;
   }
   if (!raceRow) {
-    res.status(404).json({ error: `Corrida "${raceId}" não encontrada.` });
+    notFound(res, `Corrida "${raceId}" não encontrada.`);
     return;
   }
 
@@ -107,7 +108,7 @@ router.get('/series/:seriesId/races/:raceId', async (req, res) => {
     .eq('race_id', raceId)
     .order('car_number', { ascending: true });
   if (entriesError) {
-    res.status(500).json({ error: entriesError.message });
+    serverError(res, req.path, entriesError);
     return;
   }
 
@@ -117,7 +118,7 @@ router.get('/series/:seriesId/races/:raceId', async (req, res) => {
 router.get('/series/:seriesId/teams', async (req, res) => {
   const { seriesId } = req.params;
   if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    notFound(res, `Série "${seriesId}" não encontrada.`);
     return;
   }
   const { data, error } = await supabase
@@ -125,7 +126,7 @@ router.get('/series/:seriesId/teams', async (req, res) => {
     .select('team_name, car, class, car_number, drivers')
     .eq('series_id', seriesId);
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   const byName = new Map<string, TeamSummary>();
@@ -147,7 +148,7 @@ router.get('/series/:seriesId/teams', async (req, res) => {
 router.get('/series/:seriesId/drivers', async (req, res) => {
   const { seriesId } = req.params;
   if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    notFound(res, `Série "${seriesId}" não encontrada.`);
     return;
   }
   const { data, error } = await supabase
@@ -155,7 +156,7 @@ router.get('/series/:seriesId/drivers', async (req, res) => {
     .select('drivers')
     .eq('series_id', seriesId);
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   const byName = new Map<string, Driver>();
@@ -172,7 +173,7 @@ router.get('/series/:seriesId/drivers', async (req, res) => {
 router.get('/series/:seriesId/standings', async (req, res) => {
   const { seriesId } = req.params;
   if (!isSeriesId(seriesId)) {
-    res.status(404).json({ error: `Série "${seriesId}" não encontrada.` });
+    notFound(res, `Série "${seriesId}" não encontrada.`);
     return;
   }
   const { data, error } = await supabase
@@ -181,7 +182,7 @@ router.get('/series/:seriesId/standings', async (req, res) => {
     .eq('series_id', seriesId)
     .order('position', { ascending: true });
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
 

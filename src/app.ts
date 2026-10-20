@@ -1,6 +1,9 @@
 import express from 'express';
 import seriesRouter from './routes/series.js';
 import enduranceBrasilRouter from './routes/endurance-brasil.js';
+import { baseHeaders, CACHE_NONE, errorHandler, notFound } from './http.js';
+
+export { isAllowedOrigin } from './http.js';
 
 // Fabrica do app Express, separada do listen() -- server.ts (dev local) e
 // api/index.ts (funcao serverless da Vercel) usam a mesma instancia sem
@@ -10,22 +13,12 @@ export function createApp() {
 
   app.disable('x-powered-by');
 
-  // API de leitura, chamada direto do navegador pelo PitStopHub (outro dominio).
-  // So o site (producao, previas da Vercel e dev local) recebe liberacao de CORS;
-  // o app Android nao passa por CORS. Outras origens podem ser liberadas por
-  // ALLOWED_ORIGINS (separadas por virgula).
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && isAllowedOrigin(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-    }
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    next();
-  });
+  // CORS (so o PitStopHub), Vary: Origin, headers de seguranca e
+  // Cache-Control -- ver src/http.ts.
+  app.use(baseHeaders);
 
   app.get('/health', (_req, res) => {
+    res.setHeader('Cache-Control', CACHE_NONE);
     res.json({ ok: true });
   });
 
@@ -33,17 +26,10 @@ export function createApp() {
   app.use(enduranceBrasilRouter);
 
   app.use((_req, res) => {
-    res.status(404).json({ error: 'Rota não encontrada.' });
+    notFound(res, 'Rota não encontrada.');
   });
 
+  app.use(errorHandler);
+
   return app;
-}
-
-const DEFAULT_ORIGINS = ['https://pitstophub.vercel.app'];
-const PREVIEW_ORIGIN = /^https:\/\/pitstophub-[a-z0-9-]+\.vercel\.app$/;
-const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-
-export function isAllowedOrigin(origin: string): boolean {
-  const extra = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
-  return [...DEFAULT_ORIGINS, ...extra].includes(origin) || PREVIEW_ORIGIN.test(origin) || LOCAL_ORIGIN.test(origin);
 }

@@ -8,16 +8,13 @@
   },
   "description": "API do franchise GT World Challenge (Europe/America/Asia) e do Endurance Brasil: times, pilotos e corridas, sincronizada automaticamente dos sites oficiais.",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "sync:gtwc": "node scripts/sync-gtwc.mjs",
-    "sync:endurance-brasil": "node scripts/sync-endurance-brasil.mjs"
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
-    "cheerio": "^1.0.0",
-    "dotenv": "^16.4.5",
     "express": "^4.21.2"
   },
   "devDependencies": {

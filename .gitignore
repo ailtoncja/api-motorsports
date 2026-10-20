@@ -1,7 +1,8 @@
 node_modules/
 dist/
-.env
-.env.local
+# Qualquer .env (.env, .env.local, .env.production...), menos o exemplo.
+.env*
+!.env.example
 *.log
 
 # Supabase CLI

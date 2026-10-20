@@ -1,7 +1,7 @@
 // Logica de sync (incremental, protecao contra raspagem encolhida, virada
 // de temporada, retry/timeout, alerta) com fetch falso servindo fixtures.
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@1';
-import { fetchHtml, fetchStats, HTTP_CONFIG, HttpError, resetLimiters } from '../_shared/http.ts';
+import { FetchGuardError, fetchHtml, fetchStats, HTTP_CONFIG, HttpError, resetLimiters } from '../_shared/http.ts';
 import { type GtwcState, type GtwcStore, type RaceRow, type StandingDbRow, syncGtwcSeries } from '../_shared/gtwc-sync.ts';
 import { type EbState, type EbStore, syncEnduranceBrasil } from '../_shared/eb-sync.ts';
 import { RunContext, shrinkGuard } from '../_shared/run.ts';
@@ -268,6 +268,114 @@ Deno.test('fetchHtml: timeout aborta request pendurado', async () => {
     HTTP_CONFIG.maxAttempts = maxAttempts;
     ac.abort();
     await server.finished.catch(() => {});
+  }
+});
+
+const redirect = (location: string, status = 302) => new Response(null, { status, headers: { Location: location } });
+
+Deno.test('fetchHtml: segue redirect no mesmo host (redirect manual), no maximo 3', async () => {
+  const modes: (RequestRedirect | undefined)[] = [];
+  const fake = fakeFetch([
+    [/\/antigo$/, () => redirect('/meio', 301)],
+    [/\/meio$/, () => redirect('https://example.test/novo', 308)],
+    [/\/novo$/, () => new Response('ok')],
+    [/\/loop\/\d+$/, (req) => redirect(`/loop/${Number(req.url.split('/').pop()) + 1}`)],
+  ]);
+  const inner = globalThis.fetch;
+  globalThis.fetch = ((input: string, init?: RequestInit) => {
+    modes.push(init?.redirect);
+    return inner(input, init);
+  }) as typeof fetch;
+  try {
+    assertEquals(await fetchHtml('https://example.test/antigo'), 'ok');
+    assertEquals(fake.calls, ['https://example.test/antigo', 'https://example.test/meio', 'https://example.test/novo']);
+    assert(modes.every((m) => m === 'manual'));
+
+    fake.calls.length = 0;
+    await assertRejects(() => fetchHtml('https://example.test/loop/0'), FetchGuardError, 'mais de 3 redirects');
+    // 1 request + 3 redirects seguidos; o 4o redirect e recusado, sem retry
+    assertEquals(fake.calls.length, 4);
+  } finally {
+    globalThis.fetch = inner;
+    fake.restore();
+  }
+});
+
+Deno.test('fetchHtml: redirect pra outro host ou https -> http e recusado, sem retry', async () => {
+  const fake = fakeFetch([
+    [/example\.test\/fora$/, () => redirect('https://evil.test/x')],
+    [/example\.test\/interno$/, () => redirect('http://169.254.169.254/latest/meta-data/')],
+    [/example\.test\/sub$/, () => redirect('https://sub.example.test/x')],
+    [/example\.test\/http$/, () => redirect('http://example.test/x')],
+    [/example\.test\/sem-location$/, () => new Response(null, { status: 302 })],
+    [/evil\.test|169\.254|sub\.example|http:\/\/example/, () => new Response('nao devia chegar aqui')],
+  ]);
+  try {
+    for (const path of ['fora', 'interno', 'sub', 'http', 'sem-location']) {
+      fake.calls.length = 0;
+      await assertRejects(() => fetchHtml(`https://example.test/${path}`), FetchGuardError);
+      assertEquals(fake.calls, [`https://example.test/${path}`], path);
+    }
+  } finally {
+    fake.restore();
+  }
+});
+
+Deno.test('fetchHtml: redirect manual com fetch de verdade (servidor local)', async () => {
+  const ac = new AbortController();
+  let hitsOutroHost = 0;
+  const server = Deno.serve({ port: 0, hostname: '127.0.0.1', signal: ac.signal, onListen: () => {} }, (req): Response => {
+    const { pathname, hostname } = new URL(req.url);
+    if (hostname === '127.0.0.1' && pathname === '/x') hitsOutroHost++;
+    if (pathname === '/a') return redirect('/b');
+    if (pathname === '/b') return new Response('ok');
+    // localhost -> 127.0.0.1 e outro host, mesmo sendo a mesma maquina
+    if (pathname === '/c') return redirect(`http://127.0.0.1:${server.addr.port}/x`);
+    return new Response('x');
+  });
+  try {
+    const base = `http://localhost:${server.addr.port}`;
+    assertEquals(await fetchHtml(`${base}/a`), 'ok');
+    await assertRejects(() => fetchHtml(`${base}/c`), FetchGuardError, 'recusado');
+    assertEquals(hitsOutroHost, 0);
+  } finally {
+    ac.abort();
+    await server.finished.catch(() => {});
+  }
+});
+
+Deno.test('fetchHtml: corpo acima do teto e abortado no meio do stream, sem retry', async () => {
+  const { maxBodyBytes } = HTTP_CONFIG;
+  HTTP_CONFIG.maxBodyBytes = 1000;
+  let pulls = 0;
+  let cancelled = false;
+  const fake = fakeFetch([
+    // stream infinito, sem Content-Length
+    [/\/infinito$/, () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(c) {
+            pulls++;
+            c.enqueue(new Uint8Array(300).fill(120));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+      )],
+    [/\/declarado$/, () => new Response('x', { headers: { 'Content-Length': '999999' } })],
+    [/\/no-limite$/, () => new Response('a'.repeat(1000))],
+  ]);
+  try {
+    await assertRejects(() => fetchHtml('https://example.test/infinito'), FetchGuardError, 'maior que 1000 bytes');
+    assert(cancelled, 'stream devia ser cancelado');
+    assert(pulls <= 6, `leu demais: ${pulls} pedacos`);
+    await assertRejects(() => fetchHtml('https://example.test/declarado'), FetchGuardError, 'maior que 1000 bytes');
+    assertEquals(fake.calls.filter((u) => u.endsWith('/infinito') || u.endsWith('/declarado')).length, 2);
+    assertEquals((await fetchHtml('https://example.test/no-limite')).length, 1000);
+  } finally {
+    HTTP_CONFIG.maxBodyBytes = maxBodyBytes;
+    fake.restore();
   }
 });
 

@@ -1,6 +1,6 @@
 {
   "nodeModulesDir": "none",
-  "lock": false,
+  "lock": true,
   "exclude": [
     "node_modules/",
     "dist/"
