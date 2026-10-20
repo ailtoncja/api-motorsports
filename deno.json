@@ -1,0 +1,38 @@
+{
+  "nodeModulesDir": "none",
+  "lock": false,
+  "exclude": [
+    "node_modules/",
+    "dist/"
+  ],
+  "test": {
+    "include": [
+      "supabase/functions/tests/"
+    ]
+  },
+  "lint": {
+    "include": [
+      "supabase/functions/"
+    ],
+    "rules": {
+      "exclude": [
+        "no-import-prefix"
+      ]
+    }
+  },
+  "fmt": {
+    "include": [
+      "supabase/functions/"
+    ],
+    "singleQuote": true,
+    "lineWidth": 140,
+    "exclude": [
+      "supabase/functions/tests/fixtures/"
+    ]
+  },
+  "tasks": {
+    "edge:check": "deno check supabase/functions/sync-gtwc/index.ts supabase/functions/sync-endurance-brasil/index.ts supabase/functions/tools/ supabase/functions/tests/",
+    "edge:test": "deno test -A supabase/functions/tests/",
+    "edge:probe": "deno run -A supabase/functions/tools/probe.ts"
+  }
+}
