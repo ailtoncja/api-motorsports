@@ -1,5 +1,5 @@
 // Tipos da API GT World Challenge (Europe/America/Asia). Os dados vem do
-// Supabase (ver src/supabase.ts), sincronizado por scripts/sync-gtwc.mjs --
+// Supabase (ver src/supabase.ts), sincronizado pela Edge Function sync-gtwc --
 // ver README.md pra como funciona o sync e as limitacoes conhecidas (Asia
 // nao tem entry list automatico).
 
