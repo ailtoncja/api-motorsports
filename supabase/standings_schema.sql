@@ -2,7 +2,7 @@
 -- schema.sql), depois que o schema.sql ja tiver rodado.
 --
 -- gtwc_standings: classificacao de pilotos e/ou times de cada serie,
--- sincronizada automaticamente por scripts/sync-gtwc.mjs a partir de
+-- sincronizada automaticamente pela Edge Function sync-gtwc a partir de
 -- /standings de cada site oficial. Nem toda serie tem os dois tipos --
 -- America nao tem classificacao "geral" de pilotos nem de times em 2026, so
 -- classificacao de times dividida por classe (Pro/Pro-Am/Am); ver
@@ -31,4 +31,4 @@ drop policy if exists "gtwc_standings_select_public" on public.gtwc_standings;
 create policy "gtwc_standings_select_public" on public.gtwc_standings for select using (true);
 
 -- Sem policy de insert/update/delete: mesmo padrao do schema.sql -- so a
--- service_role (GitHub Actions) escreve.
+-- service_role (Edge Function sync-gtwc) escreve.

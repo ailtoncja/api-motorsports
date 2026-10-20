@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { notFound, serverError } from '../http.js';
 import { supabase } from '../supabase.js';
 import type { EbDriver, EbDriverRef, EbRace, EbStandings, EbStandingsClass, EbTeam } from '../endurance-brasil-types.js';
 
@@ -66,13 +67,13 @@ router.get('/endurance-brasil', (_req, res) => {
   res.json(CATEGORY);
 });
 
-router.get('/endurance-brasil/races', async (_req, res) => {
+router.get('/endurance-brasil/races', async (req, res) => {
   const { data, error } = await supabase
     .from('eb_races')
     .select('*')
     .order('round', { ascending: true });
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   res.json((data ?? []).map(mapRaceRow));
@@ -86,23 +87,23 @@ router.get('/endurance-brasil/races/:raceId', async (req, res) => {
     .eq('race_id', raceId)
     .maybeSingle();
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   if (!data) {
-    res.status(404).json({ error: `Corrida "${raceId}" não encontrada.` });
+    notFound(res, `Corrida "${raceId}" não encontrada.`);
     return;
   }
   res.json(mapRaceRow(data));
 });
 
-router.get('/endurance-brasil/teams', async (_req, res) => {
+router.get('/endurance-brasil/teams', async (req, res) => {
   const { data, error } = await supabase
     .from('eb_teams')
     .select('*')
     .order('name', { ascending: true });
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   res.json((data ?? []).map(mapTeamRow));
@@ -116,23 +117,23 @@ router.get('/endurance-brasil/teams/:teamId', async (req, res) => {
     .eq('team_id', teamId)
     .maybeSingle();
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   if (!data) {
-    res.status(404).json({ error: `Equipe "${teamId}" não encontrada.` });
+    notFound(res, `Equipe "${teamId}" não encontrada.`);
     return;
   }
   res.json(mapTeamRow(data));
 });
 
-router.get('/endurance-brasil/drivers', async (_req, res) => {
+router.get('/endurance-brasil/drivers', async (req, res) => {
   const { data, error } = await supabase
     .from('eb_drivers')
     .select('*')
     .order('name', { ascending: true });
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   res.json((data ?? []).map(mapDriverRow));
@@ -146,23 +147,23 @@ router.get('/endurance-brasil/drivers/:driverId', async (req, res) => {
     .eq('driver_id', driverId)
     .maybeSingle();
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
   if (!data) {
-    res.status(404).json({ error: `Piloto "${driverId}" não encontrado.` });
+    notFound(res, `Piloto "${driverId}" não encontrado.`);
     return;
   }
   res.json(mapDriverRow(data));
 });
 
-router.get('/endurance-brasil/standings', async (_req, res) => {
+router.get('/endurance-brasil/standings', async (req, res) => {
   const { data, error } = await supabase
     .from('eb_standings')
     .select('class_label, position, name, points, uf')
     .order('position', { ascending: true });
   if (error) {
-    res.status(500).json({ error: error.message });
+    serverError(res, req.path, error);
     return;
   }
 

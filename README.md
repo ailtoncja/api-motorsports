@@ -2,7 +2,7 @@
 
 API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge** (Europe, America e Asia) e do **Endurance Brasil**. Times, pilotos e calendário de cada campeonato.
 
-O GTWC é **sincronizado automaticamente** dos sites oficiais (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então `scripts/sync-gtwc.mjs` raspa as páginas HTML de calendário e entry list e grava no Supabase. Roda 1x/dia via GitHub Actions (`.github/workflows/sync-gtwc.yml`).
+O GTWC é **sincronizado automaticamente** dos sites oficiais (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então a Edge Function `sync-gtwc` (Supabase, disparada pelo `pg_cron`) raspa as páginas HTML de calendário, resultados, classificação e entry list e grava no Supabase. Ver [Migracao para Supabase Edge Functions](#migracao-para-supabase-edge-functions).
 
 > **Limitação conhecida (Asia)**: o entry list oficial da GT World Challenge Asia só é publicado em PDF, não em tabela HTML — não dá pra raspar isso com confiança. Só o calendário da Asia é automático; times/pilotos ficam com carga manual (`supabase/seed_asia.sql`).
 
@@ -15,7 +15,8 @@ Diferente de assumir "um roster fixo pra temporada + uma exceção pras corridas
 ```bash
 npm install
 cp .env.example .env   # preencha com as chaves do seu projeto Supabase
-npm run dev
+npm run dev            # lê o .env (tsx --env-file)
+npm test               # testes da API (CORS, cache, erros), sem rede
 ```
 
 Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
@@ -34,7 +35,7 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 | `GET /series/:seriesId/drivers` | Pilotos únicos que apareceram em algum entry list da série (visão derivada) |
 | `GET /series/:seriesId/standings` | Classificação de pilotos e/ou times, `{ drivers: StandingsClass[] \| null, teams: StandingsClass[] \| null }` |
 
-`StandingsClass` é `{ classLabel: string, entries: { position, name, points }[] }` — uma classificação pode ter mais de uma classe (ex.: `classLabel: 'Pro'`, `'Pro-Am'`, `'Am'`), nunca misturadas numa lista só de posições. **Nem toda série tem os dois tipos**: a America não tem uma classificação "geral" de pilotos nem de times em 2026 no site oficial, só classificação de times por classe (Pro/Pro-Am/Am) — por isso `drivers` vem `null` pra ela. Ver `SERIES_CONFIG` em `scripts/sync-gtwc.mjs` pra saber exatamente o que cada série sincroniza.
+`StandingsClass` é `{ classLabel: string, entries: { position, name, points }[] }` — uma classificação pode ter mais de uma classe (ex.: `classLabel: 'Pro'`, `'Pro-Am'`, `'Am'`), nunca misturadas numa lista só de posições. **Nem toda série tem os dois tipos**: a America não tem uma classificação "geral" de pilotos nem de times em 2026 no site oficial, só classificação de times por classe (Pro/Pro-Am/Am) — por isso `drivers` vem `null` pra ela. Ver `SERIES_CONFIG` em `supabase/functions/_shared/gtwc-sync.ts` pra saber exatamente o que cada série sincroniza.
 
 `seriesId` é `europe`, `america` ou `asia`. `raceId` é o slug oficial da corrida (ex.: `circuit-paul-ricard`, `crowdstrike-24-hours-of-spa`) — bate com a URL do site oficial.
 
@@ -61,7 +62,7 @@ Duas tabelas, definidas em `supabase/schema.sql` (rode no SQL Editor do seu proj
 - `gtwc_entries` — grid de cada corrida (número do carro, time, carro, classe, pilotos em `jsonb`).
 - `gtwc_standings` — classificação (série, tipo `drivers`/`teams`, `class_label`, posição, nome, pontos). Definida em `supabase/standings_schema.sql`, roda separado do `schema.sql` (mesmo projeto, SQL Editor).
 
-Leitura pública (RLS `select` liberado pra qualquer um); escrita só via `service_role` (usada pelo script de sync).
+Leitura pública (RLS `select` liberado pra qualquer um); escrita só via `service_role` (usada pelas Edge Functions de sync). O `anon`/`authenticated` só tem `SELECT` nas tabelas (sem `insert`/`update`/`delete`/`truncate`) e nada em `sync_status` — ver `supabase/migrations/20261020180000_security_review.sql`.
 
 Pra popular os dados da Asia (sem sync automático), rode `supabase/seed_asia.sql` uma vez.
 
@@ -72,37 +73,9 @@ Endurance Brasil (tabelas `eb_*`, definidas em `supabase/endurance_brasil_schema
 - `eb_drivers` — pilotos da temporada.
 - `eb_standings` — classificação de pilotos por classe.
 
-## Sincronização (`scripts/sync-gtwc.mjs`)
+## Sincronização
 
-```bash
-npm run sync:gtwc
-```
-
-Precisa de `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no `.env` (ou como env var). Passo a passo, por série:
-
-1. Busca `/calendar` no site oficial, extrai cada rodada (número, nome do circuito, país, data, slug do evento) — tanto as rodadas futuras quanto as já disputadas (o site usa duas seções HTML diferentes pras duas).
-2. Pra cada rodada já disputada, busca `/results?filter_season_id={id}&filter_meeting_id={id}`, acha as sessões que são corrida de verdade (não Practice/Qualifying/Test — regex positiva `^(main )?race( \d+)?$`, cobre "Main Race" nas rodadas de Endurance Cup e "Race 1"/"Race 2" nas de Sprint Cup) e pega o time em P1 de cada uma. Vencedor = nome do time (carros de GT3 têm 2-3 pilotos); corridas Sprint viram `"Time do Race 1 / Time do Race 2"`. `null` se a corrida ainda não rolou ou nenhuma sessão de corrida foi encontrada.
-3. Busca `/standings?filter_standing_type={param}` pra cada classificação configurada em `SERIES_CONFIG` (varia por série, ver comentário no topo do script) e grava em `gtwc_standings`. Os `param`s têm um id de temporada interno de cada site embutido (ex.: `16_31_teams`) que muda toda virada de temporada — precisa checar de novo no `<select>` de `/standings` se o sync passar a trazer 0 posições.
-4. Pra Europe e America: busca `/entry-list/{ano}/{slug}` de cada rodada, lê o cabeçalho da tabela pra mapear as colunas (a ordem/quantidade difere entre os dois sites — por isso lê por nome da coluna, não posição fixa) e grava o grid completo.
-5. Pra Asia: só grava o calendário, o vencedor e a classificação (entry list é PDF, ver limitação acima).
-
-O ano da URL do entry-list (`YEAR` no topo do script) precisa ser atualizado manualmente na virada de temporada.
-
-## Sincronização Endurance Brasil (`scripts/sync-endurance-brasil.mjs`)
-
-```bash
-npm run sync:endurance-brasil
-```
-
-Mesmas env vars do sync GTWC (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`). Passo a passo:
-
-1. Busca `/calendario`, lê cada card (nome, circuito, data `DD/MM/YYYY`, slug, badge ENCERRADA).
-2. Busca `/equipes` (nome, chefe de equipe, lista de pilotos, slug).
-3. Busca `/pilotos` (nome + slug) e cruza com a classificação pra preencher UF/classe e com as equipes pra preencher `teamId`.
-4. Lê o objeto JS `season_classifications` em `/classificacao` e grava uma lista por classe. Ignora `general` porque mistura P1/GT3/GT4 numa tabela só.
-5. Pra cada etapa ENCERRADA, busca `/noticias` e as matérias de vitória geral. Se a matéria tem o resultado numerado (`<ol>` com P1 em #1), usa o time dessa linha; senão, usa a manchete (`Foresti Sports vence…`). Ignora matérias só de GT3/GT4. O nome é normalizado pro roster (`GForce Autosport` no texto vira `GForce Autorsport` no site).
-
-Roda 1x/dia em `.github/workflows/sync-endurance-brasil.yml` (job separado do GTWC, mesmas secrets).
+Feita pelas Edge Functions `sync-gtwc` e `sync-endurance-brasil` (Deno, dentro do Supabase), agendadas pelo `pg_cron` — ver [Migracao para Supabase Edge Functions](#migracao-para-supabase-edge-functions). Os scripts Node antigos (`scripts/sync-*.mjs`) e os GitHub Actions que os rodavam foram removidos.
 
 ## Build / produção (local)
 
@@ -122,13 +95,28 @@ O projeto já vem pronto pra Vercel (`vercel.json` + `api/index.ts`):
 
 `api/index.ts` exporta o mesmo app Express de `src/app.ts` (o de `npm run dev`), então o comportamento é idêntico local e em produção. `vercel.json` só redireciona toda rota pra essa função, já que as rotas reais (`/series`, `/health` etc.) são definidas dentro do Express, não em arquivos separados por rota.
 
-A API já libera CORS pra qualquer origem (ver `src/app.ts`), então dá pra chamar direto do navegador a partir de outro site/app (ex.: o PitStopHub).
+### CORS
 
-## GitHub Actions
+O CORS **não** é aberto pra qualquer origem: só o PitStopHub recebe `Access-Control-Allow-Origin` (ver `src/http.ts`):
 
-`.github/workflows/sync-gtwc.yml` e `.github/workflows/sync-endurance-brasil.yml` rodam 1x/dia (06:00 UTC) e também aceitam disparo manual (`workflow_dispatch`, aba Actions no GitHub). Precisa dos secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` cadastrados no repositório (Settings → Secrets and variables → Actions).
+- produção: `https://pitstophub.vercel.app`;
+- prévias da Vercel **do escopo do dono**: `https://pitstophub-<hash-ou-branch>-ailtoncustodiojunior24-8945s-projects.vercel.app` (qualquer conta da Vercel consegue criar um projeto `pitstophub-algo.vercel.app`, então o prefixo sozinho não basta);
+- dev local: `http://localhost[:porta]` e `http://127.0.0.1[:porta]`;
+- extras por env var `ALLOWED_ORIGINS` (origens exatas, separadas por vírgula).
 
-> Os dois workflows continuam no repo até as Edge Functions abaixo serem verificadas em produção — depois disso, desligue-os (ver o fim da próxima seção).
+App nativo (Android) e `curl` não passam por CORS e continuam funcionando. Toda resposta leva `Vary: Origin`, pro CDN não servir a resposta de uma origem pra outra.
+
+### Cache
+
+Os dados mudam a cada poucas horas (cron das Edge Functions), então `GET` com sucesso responde `Cache-Control: public, s-maxage=300, stale-while-revalidate=3600`: o CDN da Vercel segura a resposta por 5 min e pode servir a anterior por até 1 h enquanto revalida em segundo plano. Ou seja, um dado novo pode levar até ~5 min (ou um pouco mais, durante a revalidação) pra aparecer na API. `/health` e qualquer erro (`400`/`404`/`500`) vão com `Cache-Control: no-store`.
+
+### Erros
+
+As respostas de erro são JSON `{ "error": "..." }` e nunca expõem detalhe interno:
+
+- `404` — rota, série, corrida, equipe ou piloto inexistente (mensagem específica, ex.: `Série "x" não encontrada.`);
+- `400` — requisição malformada, ex.: URL com encoding quebrado (`/series/%E0%A4%A`) → `{ "error": "Requisição inválida." }`;
+- `500` — erro do Supabase ou inesperado → `{ "error": "Erro interno." }`. O detalhe (mensagem do PostgREST etc.) só vai pro log da função na Vercel (`console.error`).
 
 ## Migracao para Supabase Edge Functions
 
@@ -138,10 +126,11 @@ Os dois syncs passam a rodar **dentro do Supabase**: Edge Functions (Deno) dispa
 |---|---|
 | `supabase/functions/sync-gtwc/index.ts` | Uma série do GTWC por chamada: `POST /functions/v1/sync-gtwc?series=europe\|america\|asia` |
 | `supabase/functions/sync-endurance-brasil/index.ts` | Endurance Brasil: `POST /functions/v1/sync-endurance-brasil` |
-| `supabase/functions/_shared/` | Parsers (port fiel dos scripts `.mjs`), fetch com timeout/retry, gravação, status e alertas |
+| `supabase/functions/_shared/` | Parsers (port fiel dos scripts `.mjs` antigos), fetch com timeout/retry/limites, gravação, status e alertas |
 | `supabase/migrations/20261020120000_edge_sync.sql` | Tabela `sync_status` + funções SQL de gravação atômica (não altera tabela existente) |
+| `supabase/migrations/20261020180000_security_review.sql` | Grants: `anon`/`authenticated` só com `SELECT`, `sync_status` fechado, objetos futuros sem escrita/`EXECUTE`, `pg_net` fechado (ver Deploy) |
 | `supabase/setup_cron.sql` | Jobs do `pg_cron` (URL e segredo lidos do Vault) |
-| `supabase/functions/tests/` | Testes `deno test` (fixtures HTML reais, lógica do sync, SQL num Postgres em processo) |
+| `supabase/functions/tests/` | Testes `deno test` (fixtures HTML reais, lógica do sync, fetch, SQL e grants num Postgres em processo) |
 | `supabase/functions/tools/probe.ts` | Dry-run local: raspa de verdade, mostra o resultado e o tempo, **não grava nada** |
 
 ### O que muda no comportamento
@@ -149,6 +138,8 @@ Os dois syncs passam a rodar **dentro do Supabase**: Edge Functions (Deno) dispa
 - **Falha aparece.** Erro (site fora do ar depois dos retries, calendário vazio, erro de banco) devolve **HTTP 500** e fica em `sync_status` (`last_status = 'error'`, `consecutive_failures`, `last_error`, `problems`). O script antigo engolia o erro e saía com código 0.
 - **Nada é apagado por raspagem ruim.** Toda gravação passa por funções SQL (`sync_gtwc_races`, `replace_gtwc_entries`, `replace_gtwc_standings`, `sync_eb_races`, `replace_eb_roster`, `replace_eb_standings`) que rodam numa transação e **recusam lista vazia**. Além disso, se uma raspagem trouxer menos da metade das linhas que o banco já tem (fora de virada de temporada), o sync não grava e alerta.
 - **Timeout e retry.** Cada request tem timeout de 20 s (`AbortSignal.timeout`) e até 2 retries em erro de rede, 429 e 5xx (respeita `Retry-After`). User-Agent honesto (`api-motorsports-sync/2.0 (...; +github)`), sem se passar por navegador.
+- **Redirect e tamanho limitados.** `redirect: 'manual'`: segue no máximo 3 redirects e só pro mesmo host (sem cair de `https` pra `http`) — redirect pra outro host é recusado sem retry. O corpo é lido em stream e abortado se passar de 5 MB (as páginas têm até ~150 KB). Assim um site comprometido não consegue mandar o sync pra outro endereço (ex.: rede interna) nem estourar a memória da função.
+- **Dependências fixas.** `npm:` com versão exata em `_shared/deps.ts` (inclusive `@supabase/supabase-js@2.118.0`) e `deno.lock` commitado (`"lock": true` no `deno.json`), com hash das dependências transitivas.
 - **Incremental e mais rápido.** No lugar do `sleep(1000)` entre todo request: no máximo 3 requests simultâneos por site, espaçados 250 ms. Vencedor e entry list de rodada já disputada (+3 dias de folga pra resultado provisório) que já estão no banco não são raspados de novo; no Endurance Brasil as notícias só são lidas se houver etapa ENCERRADA sem vencedor. Primeira execução (banco vazio, pior caso) medida com o probe em 2026-10-20: Europe 11 s (39 requests), America 11 s (26), Asia 7 s (19), Endurance Brasil 5 s (18) — o script antigo levava ~163 s pras 3 séries do GTWC juntas.
 - **Uma série por chamada** (`?series=`), então cada execução fica bem abaixo do limite de 150 s de uma Edge Function (o código ainda para de buscar entry lists se passar de ~95 s).
 - **Endurance Brasil sem `eval`.** O objeto `season_classifications` de `/classificacao` é lido com `JSON5.parse` (só dados), não mais com `Function()`.
@@ -183,7 +174,8 @@ A temporada descoberta fica em `sync_status.season_year`. O teste `gtwc: virada 
 supabase login
 supabase link --project-ref <project-ref>
 
-# 1. Migração (cria sync_status + funções SQL). Ou cole o arquivo no SQL Editor.
+# 1. Migrações (sync_status + funções SQL; revisão de grants). Ou cole os
+#    arquivos no SQL Editor, na ordem.
 supabase db push
 
 # 2. Secrets das funções
@@ -196,6 +188,8 @@ supabase secrets set ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/...   # 
 supabase functions deploy sync-gtwc --no-verify-jwt
 supabase functions deploy sync-endurance-brasil --no-verify-jwt
 ```
+
+> **pg_net:** os objetos do schema `net` são do `supabase_admin`, e o `postgres` (quem roda `db push` e o SQL Editor) não pode mudar os grants deles. Rodando como `postgres`, o bloco do `pg_net` em `20261020180000_security_review.sql` só emite um `WARNING` e pula (o resto da migração é aplicado). Pra fechar o `pg_net` de verdade, esse bloco precisa rodar como `supabase_admin` (ex.: pedido ao suporte do Supabase). Ele dá grant explícito pro `postgres` antes de tirar do `PUBLIC`, então os jobs do `pg_cron` (que rodam como `postgres` e chamam `invoke_sync_function`) continuam funcionando. Enquanto isso o risco é baixo: por padrão o PostgREST do Supabase só expõe `public` e `graphql_public` (confira em Settings → API → Exposed schemas que `net` não está lá), e o `anon` não executa nenhuma função do `public`.
 
 4. No SQL Editor, guarde os 2 segredos no Vault (uma vez):
 
@@ -225,27 +219,20 @@ select * from cron.job_run_details order by start_time desc limit 20;
 select id, status_code, left(content::text, 300), error_msg, created from net._http_response order by created desc limit 20;
 ```
 
-E confira a API da Vercel (`/series/europe/races`, `/series/europe/standings`, `/endurance-brasil/races`, …): os dados devem bater com o que os Actions gravavam.
+E confira a API da Vercel (`/series/europe/races`, `/series/europe/standings`, `/endurance-brasil/races`, …): os dados devem bater com o site oficial.
 
 Localmente (precisa de [Deno 2](https://deno.com); não precisa de `npm install` nem de env var):
 
 ```bash
-deno test -A                                              # 44 testes: parsers, sync, SQL, handler
+deno test -A                                              # 52 testes: parsers, sync, fetch, SQL, grants, handler
 deno task edge:check                                      # type-check das funções, tools e testes
 deno run -A supabase/functions/tools/probe.ts gtwc europe # ou america | asia | all
 deno run -A supabase/functions/tools/probe.ts eb          # dry-run, não grava nada
 deno run -A supabase/functions/tools/make-fixtures.ts     # regera as fixtures (os fatos dos testes podem mudar)
 ```
 
-### Desligando os GitHub Actions (depois de verificar)
+### GitHub Actions e scripts antigos (removidos)
 
-Durante a verificação, os Actions e as Edge Functions podem rodar juntos (escrevem nas mesmas tabelas, os mesmos dados). Quando `sync_status` estiver mostrando `ok`/`warning` por alguns dias e a API batendo:
+Os workflows `.github/workflows/sync-*.yml` e os scripts `scripts/sync-*.mjs` foram apagados (o do Endurance Brasil ainda fazia `Function()` — `eval` — de texto raspado do site). Se ainda não fez, apague também os secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` do repositório no GitHub (Settings → Secrets and variables → Actions) — a `service_role` key não é mais usada fora do Supabase.
 
-```bash
-gh workflow disable sync-gtwc.yml
-gh workflow disable sync-endurance-brasil.yml
-```
-
-(ou na aba **Actions** do GitHub → workflow → `...` → **Disable workflow**). Depois de um tempo sem precisar voltar, dá pra apagar `.github/workflows/sync-*.yml`, os secrets do repositório e `scripts/sync-*.mjs`.
-
-**Rollback:** `gh workflow enable sync-gtwc.yml` (e o do Endurance Brasil) e, no SQL Editor, `select cron.unschedule(jobname) from cron.job where jobname like 'sync-%';`. A migração não altera tabelas existentes, então os scripts antigos continuam funcionando.
+**Rollback do agendamento:** no SQL Editor, `select cron.unschedule(jobname) from cron.job where jobname like 'sync-%';`. Os scripts antigos continuam no histórico do git, se algum dia precisar.

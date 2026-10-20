@@ -9,7 +9,7 @@
 -- pagina da corrida (aquilo e o campeonato da temporada). Times e pilotos
 -- sao tabelas proprias (nao vistas derivadas).
 --
--- Sincronizado por scripts/sync-endurance-brasil.mjs.
+-- Sincronizado pela Edge Function sync-endurance-brasil.
 
 create table if not exists public.eb_races (
   race_id text primary key, -- slug oficial, ex.: 1-etapa-quatro-horas-de-brasilia
@@ -73,4 +73,4 @@ drop policy if exists "eb_standings_select_public" on public.eb_standings;
 create policy "eb_standings_select_public" on public.eb_standings for select using (true);
 
 -- Sem policy de insert/update/delete: mesmo padrao do GTWC -- so a
--- service_role (GitHub Actions / scripts/sync-endurance-brasil.mjs) escreve.
+-- service_role (Edge Function sync-endurance-brasil) escreve.

@@ -1,5 +1,5 @@
 // Tipos da API Endurance Brasil. Os dados vem do Supabase (tabelas eb_*),
-// sincronizado por scripts/sync-endurance-brasil.mjs a partir de
+// sincronizado pela Edge Function sync-endurance-brasil a partir de
 // endurancebrasiloficial.com.br. Independente do GTWC (src/types.ts).
 
 export interface EbDriverRef {

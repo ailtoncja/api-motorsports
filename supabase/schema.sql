@@ -2,7 +2,7 @@
 -- api-motorsports, separado do pitstophub).
 --
 -- gtwc_races: calendario de cada serie (Europe/America/Asia), sincronizado
--- automaticamente por scripts/sync-gtwc.mjs.
+-- automaticamente pela Edge Function sync-gtwc.
 --
 -- gtwc_entries: grid de cada corrida (time/carro/pilotos), raspado direto da
 -- pagina oficial de entry list daquela corrida especifica -- por isso nao
@@ -54,5 +54,6 @@ create policy "gtwc_entries_select_public" on public.gtwc_entries for select usi
 
 -- Sem policy de insert/update/delete: por padrao o RLS bloqueia essas
 -- operacoes pros roles "anon" e "authenticated". So a service_role (usada
--- pelo scripts/sync-gtwc.mjs via GitHub Actions) ignora RLS e consegue
--- escrever.
+-- pela Edge Function sync-gtwc) ignora RLS e consegue escrever. Os grants
+-- de escrita do anon/authenticated sao revogados em
+-- migrations/*_security_review.sql.
