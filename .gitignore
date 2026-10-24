@@ -7,3 +7,4 @@ dist/
 
 # Supabase CLI
 supabase/.temp/
+.vercel

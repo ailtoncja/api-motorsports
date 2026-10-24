@@ -1,6 +1,6 @@
 # api-motorsports
 
-API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge** (Europe, America e Asia) e do **Endurance Brasil**. Times, pilotos e calendário de cada campeonato.
+API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge** (Europe, America e Asia), do **Endurance Brasil**, da **NASCAR Brasil** e da **Porsche Cup Brasil**. Times, pilotos, calendário e classificação de cada campeonato.
 
 O GTWC é **sincronizado automaticamente** dos sites oficiais (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então a Edge Function `sync-gtwc` (Supabase, disparada pelo `pg_cron`) raspa as páginas HTML de calendário, resultados, classificação e entry list e grava no Supabase. Ver [Migracao para Supabase Edge Functions](#migracao-para-supabase-edge-functions).
 
@@ -53,6 +53,36 @@ Rotas irmãs do GTWC — **não substituem** `/series`. Fonte: [endurancebrasilo
 | `GET /endurance-brasil/drivers` | Pilotos da temporada (`uf` = estado, `class` = P1/GT3/…) |
 | `GET /endurance-brasil/drivers/:driverId` | Um piloto |
 | `GET /endurance-brasil/standings` | `{ drivers: StandingsClass[] \| null, teams: null }` — uma lista por classe (P1, GT3, GT4, …); a chave `general` do site mistura classes e **não** é gravada |
+
+### NASCAR Brasil e Porsche Cup Brasil
+
+Rotas irmãs das anteriores. **Esta API não raspa essas duas categorias**: elas já são lidas das fontes oficiais
+(`cba.org.br` para a NASCAR Brasil, planilha oficial de pontos + calendário do `porschecupbrasil.com` para a Porsche
+Cup) pelo motor do repositório `pitstophub-data`, que grava no Supabase do PitStopHub. Aqui só publicamos esses dados
+no mesmo formato das outras categorias — raspar de novo criaria duas verdades diferentes para a mesma etapa.
+
+Por isso elas usam um **segundo** par de env vars, do projeto Supabase do PitStopHub (só leitura):
+`PITSTOPHUB_SUPABASE_URL` e `PITSTOPHUB_SUPABASE_ANON_KEY`. Sem elas, essas rotas respondem `503` e o resto da API
+(GTWC e Endurance Brasil) continua normal.
+
+| Rota | Descrição |
+|---|---|
+| `GET /nascar-brasil`, `GET /porsche-cup` | `{ id, name, season, source, lastUpdate }` — temporada publicada e de onde veio |
+| `GET /{categoria}/races` | Calendário da temporada atual (`status`, `winner`, `official`, `sourceUrl`) |
+| `GET /{categoria}/races/:raceId` | Uma etapa com `sessions[]` (`race1`, `race2`, `bonus`…), cada uma com a ordem de chegada e os pontos |
+| `GET /{categoria}/standings` | `{ season, asOfRound, drivers: StandingsClass[] \| null, teams: null }` |
+| `GET /{categoria}/drivers` | Grid da temporada, derivado dos resultados e da classificação |
+
+Tudo numa resposta sai da **mesma temporada** (a mais recente que já tem calendário): calendário de 2027 com
+classificação de 2026 seria misturar dois campeonatos. Uma etapa de temporada encerrada responde `404`.
+
+A Porsche Cup disputa dois campeonatos divididos em três categorias, então `standings.drivers` vem com uma classe por
+divisão: `Sprint Carrera`, `Sprint Challenge`, `Sprint Trophy`, `Endurance Carrera` e `Endurance Challenge` — nunca
+misturadas numa lista só. A NASCAR Brasil tem uma lista única (`Geral`).
+
+Limitações herdadas da fonte: a CBA não publica ordem de chegada da NASCAR Brasil (o vencedor é deduzido pelos pontos
+da prova), e a classificação da Porsche Cup sai de planilha, então `drivers` é o grid que apareceu em resultado ou
+classificação — nenhuma das duas fontes publica uma lista de inscritos com equipe.
 
 ## Banco de dados (Supabase)
 
