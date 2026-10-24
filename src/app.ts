@@ -1,6 +1,7 @@
 import express from 'express';
 import seriesRouter from './routes/series.js';
 import enduranceBrasilRouter from './routes/endurance-brasil.js';
+import brasilRouter from './routes/brasil.js';
 import { baseHeaders, CACHE_NONE, errorHandler, notFound } from './http.js';
 
 export { isAllowedOrigin } from './http.js';
@@ -24,6 +25,7 @@ export function createApp() {
 
   app.use(seriesRouter);
   app.use(enduranceBrasilRouter);
+  app.use(brasilRouter);
 
   app.use((_req, res) => {
     notFound(res, 'Rota não encontrada.');
