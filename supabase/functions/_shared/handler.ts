@@ -21,9 +21,12 @@ function timingSafeEqual(a: string, b: string): boolean {
   const enc = new TextEncoder();
   const x = enc.encode(a);
   const y = enc.encode(b);
+  if (y.length === 0) return false;
   let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  return diff === 0;
+  for (let i = 0; i < y.length; i++) {
+    diff |= (x.length > 0 ? x[i % x.length] : 0) ^ y[i];
+  }
+  return x.length > 0 && diff === 0;
 }
 
 export function checkSecret(req: Request): Response | null {
