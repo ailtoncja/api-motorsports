@@ -83,11 +83,32 @@ const RESULTS: Row[] = [
   },
 ];
 
+const POINTS_RULES: Row[] = [
+  {
+    category_id: 'wec',
+    season: 2026,
+    rules: {
+      sessions: { race: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1] },
+      sections: [
+        {
+          title: 'Pontuação',
+          enTitle: 'Points system',
+          body: 'Nas corridas de 6 horas, os 10 primeiros pontuam 25-18-15-12-10-8-6-4-2-1.',
+          enBody: 'In 6-hour races, top 10 score 25-18-15-12-10-8-6-4-2-1.',
+        },
+      ],
+    },
+    note: 'Regra WEC 2026',
+    updated_at: '2026-10-20T12:00:00+00:00',
+  },
+];
+
 const TABLES: Record<string, Row[]> = {
   synced_races: RACES,
   synced_standings: STANDINGS,
   standings_detail: STANDINGS_DETAIL,
   race_results: RESULTS,
+  points_rules: POINTS_RULES,
 };
 
 function applyFilters(rows: Row[], params: URLSearchParams): Row[] {
@@ -97,6 +118,9 @@ function applyFilters(rows: Row[], params: URLSearchParams): Row[] {
     if (value.startsWith('eq.')) {
       const wanted = value.slice(3);
       out = out.filter((row) => String(row[key]) === wanted);
+    } else if (value.startsWith('lte.')) {
+      const max = Number(value.slice(4));
+      out = out.filter((row) => typeof row[key] === 'number' && (row[key] as number) <= max);
     } else if (value === 'not.is.null') {
       out = out.filter((row) => row[key] != null);
     }
@@ -273,8 +297,15 @@ describe('categorias brasileiras (NASCAR Brasil e Porsche Cup)', () => {
     assert.equal(body.categories['porsche-cup'].season, 2026);
     assert.equal(body.categories['porsche-cup'].races.length, 2);
     assert.equal(body.categories['wec'].standings.drivers.length, 2);
+    assert.equal(body.categories['wec'].rules.season, 2026);
+    assert.equal(body.categories['wec'].rules.assumed, false);
+    assert.equal(body.categories['wec'].rules.sections[0].title, 'Pontuação');
     assert.equal(body.categories['f2'].races[0].winner, 'Joshua Dürksen');
     // Categoria sem linhas no banco vem null para o frontend manter o catalogo estatico.
     assert.equal(body.categories['indy'], null);
+
+    const rulesRes = await (await fetch(`${base}/wec/rules`)).json();
+    assert.equal(rulesRes.season, 2026);
+    assert.equal(rulesRes.rules.sections[0].title, 'Pontuação');
   });
 });

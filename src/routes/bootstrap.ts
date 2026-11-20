@@ -3,6 +3,7 @@ import { CACHE_NONE, serverError } from '../http.js';
 import { pitstophubData } from '../pitstophub-data.js';
 import { supabase } from '../supabase.js';
 import type {
+  BrasilCategoryRules,
   BrasilDriver,
   BrasilRace,
   BrasilStandings,
@@ -14,7 +15,9 @@ import {
   buildEngineStandings,
   ENGINE_CATEGORIES,
   mapRace,
+  pickSeasonRules,
   RACE_COLUMNS,
+  type PointsRulesRow,
   type RaceRow,
   type StandingDetailRowInput,
   type StandingRowInput,
@@ -53,12 +56,14 @@ export interface BootstrapCategoryData {
   races: BrasilRace[];
   standings: BrasilStandings;
   drivers: BrasilDriver[];
+  rules?: BrasilCategoryRules | null;
 }
 
 export interface BootstrapResponse {
   gtwc: Record<SeriesId, BootstrapGtwcData | null>;
   enduranceBrasil: BootstrapEbData | null;
   categories: Record<string, BootstrapCategoryData | null>;
+  rulesByCategory?: Record<string, BrasilCategoryRules | null>;
 }
 
 router.get('/categories', (_req, res) => {
@@ -226,11 +231,14 @@ type BulkFreshnessRow = {
   degraded?: boolean | null;
 };
 
-async function loadEngineCategoriesAll(): Promise<Record<string, BootstrapCategoryData | null> | null> {
+async function loadEngineCategoriesAll(): Promise<{
+  categories: Record<string, BootstrapCategoryData | null>;
+  rulesByCategory: Record<string, BrasilCategoryRules | null>;
+} | null> {
   const db = pitstophubData();
   if (!db) return null;
 
-  const [racesRes, mainRes, detailRes, resultsRes, freshnessRes] = await Promise.all([
+  const [racesRes, mainRes, detailRes, resultsRes, freshnessRes, rulesRes] = await Promise.all([
     db
       .from('synced_races')
       .select(`category_id, season, source, updated_at, ${RACE_COLUMNS}`)
@@ -245,11 +253,12 @@ async function loadEngineCategoriesAll(): Promise<Record<string, BootstrapCatego
       .order('position', { ascending: true }),
     db.from('race_results').select('category_id, season, rows'),
     db.from('sync_freshness').select('category_id, season, as_of_round, last_success_at, degraded'),
+    db.from('points_rules').select('category_id, season, rules, note, updated_at'),
   ]);
 
   if (racesRes.error) throw racesRes.error;
   if (mainRes.error) throw mainRes.error;
-  // standings_detail, race_results e sync_freshness sao opcionais caso o schema legado ainda nao as tenha.
+  // standings_detail, race_results, sync_freshness e points_rules sao opcionais caso o schema legado ainda nao as tenha.
   if (detailRes.error && !/relation .* does not exist/i.test(detailRes.error.message)) throw detailRes.error;
   if (resultsRes.error && !/relation .* does not exist/i.test(resultsRes.error.message)) throw resultsRes.error;
 
@@ -258,6 +267,7 @@ async function loadEngineCategoriesAll(): Promise<Record<string, BootstrapCatego
   const allDetail = (detailRes.data ?? []) as unknown as BulkDetailRow[];
   const allResults = (resultsRes.data ?? []) as unknown as BulkResultRow[];
   const allFreshness = (freshnessRes.error ? [] : (freshnessRes.data ?? [])) as unknown as BulkFreshnessRow[];
+  const allRules = (rulesRes.error ? [] : (rulesRes.data ?? [])) as unknown as PointsRulesRow[];
 
   const freshnessByCat = new Map<string, BulkFreshnessRow>();
   for (const f of allFreshness) {
@@ -265,6 +275,7 @@ async function loadEngineCategoriesAll(): Promise<Record<string, BootstrapCatego
   }
 
   const out: Record<string, BootstrapCategoryData | null> = {};
+  const rulesByCategory: Record<string, BrasilCategoryRules | null> = {};
 
   for (const [categoryId, config] of Object.entries(ENGINE_CATEGORIES)) {
     const catRaces = allRaces.filter((r) => r.category_id === categoryId);
@@ -305,6 +316,8 @@ async function loadEngineCategoriesAll(): Promise<Record<string, BootstrapCatego
     const standings = buildEngineStandings(config, season, seasonMain, seasonDetail);
     const drivers = buildEngineDrivers(config, seasonResults, seasonMain, seasonDetail);
     const freshness = freshnessByCat.get(categoryId);
+    const rules = pickSeasonRules(allRules, categoryId, season);
+    if (rules) rulesByCategory[categoryId] = rules;
 
     out[categoryId] = {
       id: categoryId,
@@ -317,10 +330,20 @@ async function loadEngineCategoriesAll(): Promise<Record<string, BootstrapCatego
       races: seasonRaces.map(mapRace),
       standings,
       drivers,
+      rules,
     };
   }
 
-  return out;
+  // Tambem inclui regras de pontos/secoes cadastradas para outras categorias (ex.: gtwc-*, endurance-brasil, f1)
+  const extraCategories = new Set(allRules.map((r) => r.category_id));
+  const currentYear = new Date().getUTCFullYear();
+  for (const catId of extraCategories) {
+    if (catId in rulesByCategory) continue;
+    const picked = pickSeasonRules(allRules, catId, currentYear);
+    if (picked) rulesByCategory[catId] = picked;
+  }
+
+  return { categories: out, rulesByCategory };
 }
 
 router.get('/bootstrap', async (req, res) => {
@@ -358,7 +381,8 @@ router.get('/bootstrap', async (req, res) => {
   const response: BootstrapResponse = {
     gtwc: gtwcRes.status === 'fulfilled' ? gtwcRes.value : { europe: null, america: null, asia: null },
     enduranceBrasil: ebRes.status === 'fulfilled' ? ebRes.value : null,
-    categories: engineRes.status === 'fulfilled' && engineRes.value ? engineRes.value : emptyCategories,
+    categories: engineRes.status === 'fulfilled' && engineRes.value ? engineRes.value.categories : emptyCategories,
+    rulesByCategory: engineRes.status === 'fulfilled' && engineRes.value ? engineRes.value.rulesByCategory : {},
   };
 
   res.json(response);

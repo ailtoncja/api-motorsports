@@ -71,6 +71,29 @@ export interface BrasilDriver {
   classes: string[];
 }
 
+export interface BrasilRuleSection {
+  title: string;
+  enTitle?: string | null;
+  body: string;
+  enBody?: string | null;
+}
+
+export interface BrasilCategoryRules {
+  season: number;
+  /** true quando herdada da temporada anterior por ainda nao haver linha especifica da temporada atual. */
+  assumed: boolean;
+  sessions?: Record<string, number[]> | null;
+  multipliers?: Record<string, number> | null;
+  drops?: number | null;
+  useSourcePoints?: boolean | null;
+  perClass?: boolean | null;
+  sections?: BrasilRuleSection[] | null;
+  longDescription?: string | null;
+  enLongDescription?: string | null;
+  note?: string | null;
+  updatedAt?: string | null;
+}
+
 export interface BrasilCategory {
   id: string;
   name: string;
@@ -79,4 +102,5 @@ export interface BrasilCategory {
   lastUpdate: string | null;
   asOfRound?: number | null;
   degraded?: boolean;
+  rules?: BrasilCategoryRules | null;
 }

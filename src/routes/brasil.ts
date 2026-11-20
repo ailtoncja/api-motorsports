@@ -3,11 +3,13 @@ import { CACHE_NONE, notFound, serverError } from '../http.js';
 import { pitstophubData } from '../pitstophub-data.js';
 import type {
   BrasilCategory,
+  BrasilCategoryRules,
   BrasilDriver,
   BrasilRace,
   BrasilRaceDetail,
   BrasilRaceSession,
   BrasilResultRow,
+  BrasilRuleSection,
   BrasilStandings,
   BrasilStandingsClass,
 } from '../brasil-types.js';
@@ -403,6 +405,88 @@ export function buildEngineDrivers(
   return [...drivers.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export type PointsRulesRow = {
+  category_id: string;
+  season: number;
+  rules: unknown;
+  note?: string | null;
+  updated_at?: string | null;
+};
+
+function sanitizeRuleSections(raw: unknown): BrasilRuleSection[] | null {
+  if (!Array.isArray(raw)) return null;
+  const sections: BrasilRuleSection[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const title = typeof rec.title === 'string' ? rec.title.trim() : '';
+    const body = typeof rec.body === 'string' ? rec.body.trim() : '';
+    if (!title || !body) continue;
+    const section: BrasilRuleSection = { title, body };
+    if (typeof rec.enTitle === 'string' && rec.enTitle.trim()) section.enTitle = rec.enTitle.trim();
+    if (typeof rec.enBody === 'string' && rec.enBody.trim()) section.enBody = rec.enBody.trim();
+    sections.push(section);
+  }
+  return sections.length > 0 ? sections : null;
+}
+
+/**
+ * Escolhe a regra da temporada ativa (ou herda a tabela de pontos mais recente <= season).
+ * Secoes textuais ("sections" e "longDescription") so sao aplicadas quando cadastradas
+ * especificamente para a temporada alvo, para nao mascarar a transicao automatica de um ano novo.
+ */
+export function pickSeasonRules(
+  rows: PointsRulesRow[],
+  categoryId: string,
+  targetSeason: number,
+): BrasilCategoryRules | null {
+  const candidates = rows
+    .filter((r) => r.category_id === categoryId && typeof r.season === 'number' && r.season <= targetSeason)
+    .sort((a, b) => b.season - a.season);
+  const best = candidates[0];
+  if (!best || !best.rules || typeof best.rules !== 'object') return null;
+
+  const assumed = best.season < targetSeason;
+  const raw = best.rules as Record<string, unknown>;
+  const sessions =
+    raw.sessions && typeof raw.sessions === 'object' && !Array.isArray(raw.sessions)
+      ? (raw.sessions as Record<string, number[]>)
+      : null;
+  const multipliers =
+    raw.multipliers && typeof raw.multipliers === 'object' && !Array.isArray(raw.multipliers)
+      ? (raw.multipliers as Record<string, number>)
+      : null;
+
+  return {
+    season: best.season,
+    assumed,
+    sessions,
+    multipliers,
+    drops: typeof raw.drops === 'number' ? raw.drops : null,
+    useSourcePoints: typeof raw.useSourcePoints === 'boolean' ? raw.useSourcePoints : null,
+    perClass: typeof raw.perClass === 'boolean' ? raw.perClass : null,
+    sections: !assumed ? sanitizeRuleSections(raw.sections) : null,
+    longDescription: !assumed && typeof raw.longDescription === 'string' ? raw.longDescription : null,
+    enLongDescription: !assumed && typeof raw.enLongDescription === 'string' ? raw.enLongDescription : null,
+    note: best.note ?? null,
+    updatedAt: best.updated_at ?? null,
+  };
+}
+
+async function queryCategoryRules(categoryId: string, season: number | null): Promise<BrasilCategoryRules | null> {
+  const db = pitstophubData();
+  if (!db || season == null) return null;
+  const res = await db
+    .from('points_rules')
+    .select('category_id, season, rules, note, updated_at')
+    .eq('category_id', categoryId)
+    .lte('season', season)
+    .order('season', { ascending: false })
+    .limit(1);
+  if (res.error) return null;
+  return pickSeasonRules((res.data ?? []) as PointsRulesRow[], categoryId, season);
+}
+
 async function queryCategoryRaces(categoryId: string, resolved: ResolvedSeason): Promise<RaceRow[]> {
   const db = pitstophubData();
   if (!db || resolved.season == null) return [];
@@ -438,12 +522,15 @@ function registerCategory(config: CategoryConfig, path: string): void {
     }
     try {
       const { season } = await resolveSeason(categoryId);
-      const { data, error } = await db
-        .from('synced_races')
-        .select('source, updated_at')
-        .eq('category_id', categoryId)
-        .order('updated_at', { ascending: false })
-        .limit(1);
+      const [{ data, error }, rules] = await Promise.all([
+        db
+          .from('synced_races')
+          .select('source, updated_at')
+          .eq('category_id', categoryId)
+          .order('updated_at', { ascending: false })
+          .limit(1),
+        queryCategoryRules(categoryId, season),
+      ]);
       if (error) throw error;
       const category: BrasilCategory = {
         id: categoryId,
@@ -451,8 +538,24 @@ function registerCategory(config: CategoryConfig, path: string): void {
         season,
         source: data?.[0]?.source ?? null,
         lastUpdate: data?.[0]?.updated_at ?? null,
+        rules,
       };
       res.json(category);
+    } catch (error) {
+      serverError(res, req.path, error);
+    }
+  });
+
+  router.get(`${path}/rules`, async (req, res) => {
+    const db = pitstophubData();
+    if (!db) {
+      unavailable(res);
+      return;
+    }
+    try {
+      const { season } = await resolveSeason(categoryId);
+      const rules = await queryCategoryRules(categoryId, season);
+      res.json({ categoryId, season, rules });
     } catch (error) {
       serverError(res, req.path, error);
     }
