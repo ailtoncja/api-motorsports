@@ -1,5 +1,6 @@
-// Tipos das categorias brasileiras servidas a partir do Supabase do
-// PitStopHub (ver src/pitstophub-data.ts): NASCAR Brasil e Porsche Cup Brasil.
+// Tipos das categorias servidas a partir do Supabase do PitStopHub
+// (ver src/pitstophub-data.ts): NASCAR Brasil, Porsche Cup Brasil, F2, F3,
+// F1 Academy, WEC, IMSA, DTM, IndyCar, NASCAR e WRC.
 // Mesmo formato de StandingsClass do GTWC/Endurance Brasil, para o site e o
 // app lerem tudo igual.
 
@@ -7,7 +8,9 @@ export interface BrasilRace {
   raceId: string;
   round: number | null;
   name: string;
+  enName?: string | null;
   location: string | null;
+  enLocation?: string | null;
   circuit: string | null;
   date: string; // YYYY-MM-DD
   startsAt: string | null;
@@ -22,8 +25,11 @@ export interface BrasilRace {
 export interface BrasilResultRow {
   position: number | null;
   driver: string;
+  team?: string | null;
   number: string | null;
   points: number | null;
+  time?: string | null;
+  laps?: number | null;
   status: string | null;
 }
 
@@ -53,13 +59,14 @@ export interface BrasilStandings {
   season: number | null;
   asOfRound: number | null;
   drivers: BrasilStandingsClass[] | null;
-  teams: null;
+  teams: BrasilStandingsClass[] | null;
 }
 
 export interface BrasilDriver {
   driverId: string;
   name: string;
   number: string | null;
+  team?: string | null;
   /** Divisao/campeonato em que o piloto aparece (ex.: Sprint Trophy). */
   classes: string[];
 }
@@ -70,4 +77,6 @@ export interface BrasilCategory {
   season: number | null;
   source: string | null;
   lastUpdate: string | null;
+  asOfRound?: number | null;
+  degraded?: boolean;
 }

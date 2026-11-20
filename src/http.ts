@@ -12,7 +12,7 @@ import type { ErrorRequestHandler, RequestHandler, Response } from 'express';
 // consegue criar um projeto "pitstophub-algo", entao so o prefixo nao basta)
 // e dev local. O app Android nao passa por CORS. Outras origens podem ser
 // liberadas por ALLOWED_ORIGINS (separadas por virgula, origem exata).
-const DEFAULT_ORIGINS = ['https://pitstophub.vercel.app'];
+const DEFAULT_ORIGINS = ['https://pitstophub.vercel.app', 'https://pitstophub-teste.vercel.app'];
 const PREVIEW_ORIGIN = /^https:\/\/pitstophub-[a-z0-9-]+-ailtoncustodiojunior24-8945s-projects\.vercel\.app$/;
 const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 

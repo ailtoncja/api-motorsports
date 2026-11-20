@@ -35,6 +35,21 @@ const RACES: Row[] = [
     source_url: 'https://cba.org.br/campeonato/classificacao/330/50/nascar-brasil-sprint-nbsp-race',
     source: 'cba.org.br (classificacao CBA)', updated_at: '2026-10-23T19:31:46.559+00:00',
   },
+  {
+    category_id: 'wec', season: 2026, race_id: 'r01-imola', round: 1, name: '6 Horas de Ímola',
+    en_name: '6 Hours of Imola', location: 'Ímola', en_location: 'Imola', circuit: 'Autodromo Enzo e Dino Ferrari',
+    date: '2026-04-19', starts_at: '2026-04-19T11:00:00Z', status: 'completed',
+    winner: 'Sébastien Buemi', official: true, source_url: 'https://www.fiawec.com',
+    source: 'fiawec.com', updated_at: '2026-10-20T12:00:00+00:00',
+  },
+  // Categoria com linhas legadas onde season e null (ano descoberto por date).
+  {
+    category_id: 'f2', season: null, race_id: 'r01-melbourne', round: 1, name: 'Rodada 1',
+    en_name: 'Melbourne Feature Race', location: 'Melbourne', en_location: 'Melbourne', circuit: 'Albert Park',
+    date: '2026-03-08', starts_at: '2026-03-08T00:30:00Z', status: 'completed',
+    winner: 'Joshua Dürksen', official: true, source_url: null,
+    source: 'thesportsdb', updated_at: '2026-10-20T10:00:00+00:00',
+  },
 ];
 
 const STANDINGS: Row[] = [
@@ -42,12 +57,16 @@ const STANDINGS: Row[] = [
   { category_id: 'porsche-cup', season: 2026, position: 2, name: 'Jeff Giassi', team: null, points: 150, as_of_round: 7 },
   { category_id: 'porsche-cup', season: 2025, position: 1, name: 'Piloto De 2025', team: null, points: 999, as_of_round: 10 },
   { category_id: 'nascar-brasil', season: 2026, position: 1, name: 'Thiago Camilo', team: null, points: 226, as_of_round: 7 },
+  { category_id: 'wec', season: 2026, position: 1, name: 'Sébastien Buemi', team: 'Toyota Gazoo Racing', points: 112, as_of_round: 5 },
+  { category_id: 'f2', season: null, position: 1, name: 'Joshua Dürksen', team: 'AIX Racing', points: 95, as_of_round: 4 },
 ];
 
 const STANDINGS_DETAIL: Row[] = [
   { category_id: 'porsche-cup', season: 2026, grp: 'endurance-challenge', position: 1, name: 'Fabio Carbone', team: null, points: 105, as_of_round: 8 },
   { category_id: 'porsche-cup', season: 2026, grp: 'trophy', position: 1, name: 'Peter Ferter', team: null, points: 90, as_of_round: 7 },
   { category_id: 'porsche-cup', season: 2026, grp: 'challenge', position: 1, name: 'Bruno Campos', team: null, points: 110, as_of_round: 7 },
+  { category_id: 'wec', season: 2026, grp: 'lmgt3', position: 1, name: 'Augusto Farfus', team: 'Team WRT', points: 88, as_of_round: 5 },
+  { category_id: 'wec', season: 2026, grp: 'teams:hypercar', position: 1, name: 'Toyota Gazoo Racing', team: null, points: 140, as_of_round: 5 },
 ];
 
 const RESULTS: Row[] = [
@@ -212,5 +231,50 @@ describe('categorias brasileiras (NASCAR Brasil e Porsche Cup)', () => {
     const races = await (await fetch(`${base}/nascar-brasil/races`)).json();
     assert.equal(races.length, 1);
     assert.equal(races[0].raceId, 'r01-santa-cruz');
+  });
+
+  test('WEC separa Hypercar e LMGT3 e entrega classificacao de equipes e nomes em ingles', async () => {
+    const races = await (await fetch(`${base}/wec/races`)).json();
+    assert.equal(races.length, 1);
+    assert.equal(races[0].enName, '6 Hours of Imola');
+    assert.equal(races[0].enLocation, 'Imola');
+
+    const standings = await (await fetch(`${base}/wec/standings`)).json();
+    assert.deepEqual(standings.drivers.map((c: { classLabel: string }) => c.classLabel), ['Hypercar', 'LMGT3']);
+    assert.equal(standings.drivers[1].entries[0].name, 'Augusto Farfus');
+    assert.deepEqual(standings.teams.map((c: { classLabel: string }) => c.classLabel), ['Hypercar']);
+    assert.equal(standings.teams[0].entries[0].name, 'Toyota Gazoo Racing');
+  });
+
+  test('categoria com linhas legadas sem coluna season resolve o ano pela data', async () => {
+    const races = await (await fetch(`${base}/f2/races`)).json();
+    assert.equal(races.length, 1);
+    assert.equal(races[0].winner, 'Joshua Dürksen');
+
+    const standings = await (await fetch(`${base}/f2/standings`)).json();
+    assert.equal(standings.season, 2026);
+    assert.equal(standings.drivers[0].entries[0].name, 'Joshua Dürksen');
+  });
+
+  test('/categories lista todas as 15 categorias servidas pela API', async () => {
+    const list = await (await fetch(`${base}/categories`)).json();
+    assert.equal(list.length, 15);
+    assert.equal(list.some((c: { id: string }) => c.id === 'gtwc-europe'), true);
+    assert.equal(list.some((c: { id: string }) => c.id === 'endurance-brasil'), true);
+    assert.equal(list.some((c: { id: string }) => c.id === 'wec'), true);
+    assert.equal(list.some((c: { id: string }) => c.id === 'wrc'), true);
+  });
+
+  test('/bootstrap agrega todas as fontes numa chamada so e devolve null para categorias ainda sem linhas no banco', async () => {
+    const res = await fetch(`${base}/bootstrap`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('cache-control'), 'public, s-maxage=300, stale-while-revalidate=3600');
+    const body = await res.json();
+    assert.equal(body.categories['porsche-cup'].season, 2026);
+    assert.equal(body.categories['porsche-cup'].races.length, 2);
+    assert.equal(body.categories['wec'].standings.drivers.length, 2);
+    assert.equal(body.categories['f2'].races[0].winner, 'Joshua Dürksen');
+    // Categoria sem linhas no banco vem null para o frontend manter o catalogo estatico.
+    assert.equal(body.categories['indy'], null);
   });
 });

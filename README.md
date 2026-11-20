@@ -1,6 +1,6 @@
 # api-motorsports
 
-API (Node.js + TypeScript + Express + Supabase) do franchise **GT World Challenge** (Europe, America e Asia), do **Endurance Brasil**, da **NASCAR Brasil** e da **Porsche Cup Brasil**. Times, pilotos, calendário e classificação de cada campeonato.
+API unificada (Node.js + TypeScript + Express + Supabase) das **15 categorias fora da F1** do PitStopHub: **GT World Challenge** (Europe, America e Asia), **Endurance Brasil**, **NASCAR Brasil**, **Porsche Cup Brasil**, **F2**, **F3**, **F1 Academy**, **WEC**, **IMSA**, **DTM**, **IndyCar**, **NASCAR** e **WRC**. Times, pilotos, calendário, resultados por sessão e classificação (com suporte a múltiplas classes) de cada campeonato.
 
 O GTWC é **sincronizado automaticamente** dos sites oficiais (`gt-world-challenge-europe.com`, `-america.com`, `-asia.com`) — não existe API pública estruturada pra essa categoria, então a Edge Function `sync-gtwc` (Supabase, disparada pelo `pg_cron`) raspa as páginas HTML de calendário, resultados, classificação e entry list e grava no Supabase. Ver [Migracao para Supabase Edge Functions](#migracao-para-supabase-edge-functions).
 
@@ -26,6 +26,8 @@ Sobe em `http://localhost:3000` (mude a porta com a env var `PORT`).
 | Rota | Descrição |
 |---|---|
 | `GET /health` | Healthcheck |
+| `GET /categories` | Lista todas as 15 categorias servidas pela API (`id`, `name`, `path`) |
+| `GET /bootstrap` | Pacote único com as 15 categorias (`gtwc`, `enduranceBrasil`, `categories`) para abrir o app em 1 requisição |
 | `GET /series` | Lista as 3 séries (`europe`, `america`, `asia`) |
 | `GET /series/:seriesId` | Nome/id da série |
 | `GET /series/:seriesId/races` | Calendário |
@@ -54,12 +56,9 @@ Rotas irmãs do GTWC — **não substituem** `/series`. Fonte: [endurancebrasilo
 | `GET /endurance-brasil/drivers/:driverId` | Um piloto |
 | `GET /endurance-brasil/standings` | `{ drivers: StandingsClass[] \| null, teams: null }` — uma lista por classe (P1, GT3, GT4, …); a chave `general` do site mistura classes e **não** é gravada |
 
-### NASCAR Brasil e Porsche Cup Brasil
+### Categorias do Motor PitStopHub (`nascar-brasil`, `porsche-cup`, `f2`, `f3`, `f1-academy`, `wec`, `imsa`, `dtm`, `indy`, `nascar`, `wrc`)
 
-Rotas irmãs das anteriores. **Esta API não raspa essas duas categorias**: elas já são lidas das fontes oficiais
-(`cba.org.br` para a NASCAR Brasil, planilha oficial de pontos + calendário do `porschecupbrasil.com` para a Porsche
-Cup) pelo motor do repositório `pitstophub-data`, que grava no Supabase do PitStopHub. Aqui só publicamos esses dados
-no mesmo formato das outras categorias — raspar de novo criaria duas verdades diferentes para a mesma etapa.
+Rotas irmãs das anteriores. **Esta API não raspa essas 11 categorias**: elas são lidas das fontes oficiais pelo motor do repositório `pitstophub-data`, que grava no Supabase do PitStopHub (`synced_races`, `synced_standings`, `standings_detail`, `race_results`, `sync_freshness`). Aqui publicamos todas elas no mesmo contrato padronizado (com suporte a múltiplas classes, equipes e resultados por sessão) e agregadas em `/bootstrap`.
 
 Por isso elas usam um **segundo** par de env vars, do projeto Supabase do PitStopHub (só leitura):
 `PITSTOPHUB_SUPABASE_URL` e `PITSTOPHUB_SUPABASE_ANON_KEY`. Sem elas, essas rotas respondem `503` e o resto da API
@@ -67,7 +66,7 @@ Por isso elas usam um **segundo** par de env vars, do projeto Supabase do PitSto
 
 | Rota | Descrição |
 |---|---|
-| `GET /nascar-brasil`, `GET /porsche-cup` | `{ id, name, season, source, lastUpdate }` — temporada publicada e de onde veio |
+| `GET /{categoria}` | `{ id, name, season, source, lastUpdate }` — temporada publicada e de onde veio (`nascar-brasil`, `porsche-cup`, `f2`, `f3`, `f1-academy`, `wec`, `imsa`, `dtm`, `indy`, `nascar`, `wrc`) |
 | `GET /{categoria}/races` | Calendário da temporada atual (`status`, `winner`, `official`, `sourceUrl`) |
 | `GET /{categoria}/races/:raceId` | Uma etapa com `sessions[]` (`race1`, `race2`, `bonus`…), cada uma com a ordem de chegada e os pontos |
 | `GET /{categoria}/standings` | `{ season, asOfRound, drivers: StandingsClass[] \| null, teams: null }` |
