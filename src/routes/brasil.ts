@@ -77,10 +77,13 @@ export const ENGINE_CATEGORIES: Record<string, CategoryConfig> = {
     mainClassLabel: 'Hypercar',
     groupLabels: {
       hypercar: 'Hypercar',
+      'class:hypercar': 'Hypercar',
       lmgt3: 'LMGT3',
+      'class:lmgt3': 'LMGT3',
       lmp2: 'LMP2',
+      'class:lmp2': 'LMP2',
     },
-    groupOrder: ['hypercar', 'lmgt3', 'lmp2'],
+    groupOrder: ['hypercar', 'class:hypercar', 'lmgt3', 'class:lmgt3', 'lmp2', 'class:lmp2'],
   },
   imsa: {
     categoryId: 'imsa',
@@ -88,12 +91,17 @@ export const ENGINE_CATEGORIES: Record<string, CategoryConfig> = {
     mainClassLabel: 'GTP',
     groupLabels: {
       gtp: 'GTP',
+      'class:gtp': 'GTP',
       lmp2: 'LMP2',
+      'class:lmp2': 'LMP2',
       'gtd-pro': 'GTD Pro',
       gtdpro: 'GTD Pro',
+      'class:gtdpro': 'GTD Pro',
+      'class:gtd-pro': 'GTD Pro',
       gtd: 'GTD',
+      'class:gtd': 'GTD',
     },
-    groupOrder: ['gtp', 'lmp2', 'gtd-pro', 'gtdpro', 'gtd'],
+    groupOrder: ['gtp', 'class:gtp', 'lmp2', 'class:lmp2', 'gtd-pro', 'gtdpro', 'class:gtdpro', 'class:gtd-pro', 'gtd', 'class:gtd'],
   },
   dtm: {
     categoryId: 'dtm',
@@ -131,10 +139,26 @@ export const ENGINE_CATEGORIES: Record<string, CategoryConfig> = {
 
 const MAIN_GROUP = 'drivers';
 const TEAM_GROUPS = new Set(['teams', 'constructors']);
+const IGNORED_GROUPS = new Set(['manufacturers']);
 
 function isTeamGroup(grp: string): boolean {
   const lower = grp.toLowerCase();
   return TEAM_GROUPS.has(lower) || lower.startsWith('teams:') || lower.startsWith('team-') || lower.startsWith('constructors:');
+}
+
+function isIgnoredGroup(grp: string): boolean {
+  return IGNORED_GROUPS.has(grp.toLowerCase());
+}
+
+function driverClassLabel(grp: string, config: CategoryConfig): string {
+  const lower = grp.toLowerCase();
+  const stripped = lower.replace(/^class:/, '');
+  return (
+    config.groupLabels[grp] ??
+    config.groupLabels[lower] ??
+    config.groupLabels[stripped] ??
+    grp.replace(/^class:/i, '')
+  );
 }
 
 function teamClassLabel(grp: string, config: CategoryConfig): string {
@@ -289,7 +313,7 @@ export function buildEngineStandings(
   }
 
   for (const row of detailRows) {
-    if (row.grp === MAIN_GROUP) continue;
+    if (row.grp === MAIN_GROUP || isIgnoredGroup(row.grp)) continue;
     if (row.as_of_round != null) asOfRound = Math.max(asOfRound ?? 0, row.as_of_round);
 
     if (isTeamGroup(row.grp)) {
@@ -308,7 +332,7 @@ export function buildEngineStandings(
       continue;
     }
 
-    const label = config.groupLabels[row.grp] ?? config.groupLabels[row.grp.toLowerCase()] ?? row.grp;
+    const label = driverClassLabel(row.grp, config);
     // Evita duplicar a lista principal se standings_detail repetir a mesma classe de synced_standings.
     if (mainEntries.length > 0 && label.toLowerCase() === config.mainClassLabel.toLowerCase()) continue;
 
@@ -372,8 +396,8 @@ export function buildEngineDrivers(
   }
   for (const row of mainStandings) add(row.name, null, config.mainClassLabel, row.team);
   for (const row of detailStandings) {
-    if (row.grp === MAIN_GROUP || isTeamGroup(row.grp)) continue;
-    add(row.name, null, config.groupLabels[row.grp] ?? config.groupLabels[row.grp.toLowerCase()] ?? row.grp, row.team);
+    if (row.grp === MAIN_GROUP || isTeamGroup(row.grp) || isIgnoredGroup(row.grp)) continue;
+    add(row.name, null, driverClassLabel(row.grp, config), row.team);
   }
 
   return [...drivers.values()].sort((a, b) => a.name.localeCompare(b.name));

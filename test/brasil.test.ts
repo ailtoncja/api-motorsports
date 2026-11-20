@@ -65,7 +65,7 @@ const STANDINGS_DETAIL: Row[] = [
   { category_id: 'porsche-cup', season: 2026, grp: 'endurance-challenge', position: 1, name: 'Fabio Carbone', team: null, points: 105, as_of_round: 8 },
   { category_id: 'porsche-cup', season: 2026, grp: 'trophy', position: 1, name: 'Peter Ferter', team: null, points: 90, as_of_round: 7 },
   { category_id: 'porsche-cup', season: 2026, grp: 'challenge', position: 1, name: 'Bruno Campos', team: null, points: 110, as_of_round: 7 },
-  { category_id: 'wec', season: 2026, grp: 'lmgt3', position: 1, name: 'Augusto Farfus', team: 'Team WRT', points: 88, as_of_round: 5 },
+  { category_id: 'wec', season: 2026, grp: 'class:LMGT3', position: 1, name: 'Augusto Farfus', team: 'Team WRT', points: 88, as_of_round: 5 },
   { category_id: 'wec', season: 2026, grp: 'teams:hypercar', position: 1, name: 'Toyota Gazoo Racing', team: null, points: 140, as_of_round: 5 },
 ];
 
